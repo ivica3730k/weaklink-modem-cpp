@@ -126,6 +126,7 @@ void send_command(int handle, const char* command) {
 void check_reply(int handle, const char* command) {
   char reply[64] = {0};
   std::size_t filled = 0;
+  bool complete = false;
   while (filled + 1 < sizeof(reply)) {
 #if defined(_WIN32)
     const int got = ::recv(static_cast<SocketHandle>(handle), reply + filled,
@@ -139,18 +140,46 @@ void check_reply(int handle, const char* command) {
     }
     filled += static_cast<std::size_t>(got);
     if (std::memchr(reply, '\n', filled) != nullptr) {
+      complete = true;
       break;
     }
   }
   const std::string text(reply, filled);
+  // Anything short of a terminated, parsable ``RPRT <code>`` is treated as a
+  // failure: the whole point of reading the reply is that a keyed transmitter
+  // must never be assumed from bytes that merely look encouraging.
+  if (!complete) {
+    throw PTTError(std::string("rigctld ") + command + ": unterminated reply '" + text + "'");
+  }
   const std::size_t marker = text.find("RPRT");
   if (marker == std::string::npos) {
     throw PTTError(std::string("rigctld ") + command + ": unexpected reply '" + text + "'");
   }
-  const int code = std::atoi(text.c_str() + marker + 4);
+  const char* cursor = text.c_str() + marker + 4;
+  while (*cursor == ' ' || *cursor == '\t') {
+    ++cursor;
+  }
+  char* end = nullptr;
+  const long code = std::strtol(cursor, &end, 10);
+  if (end == cursor) {
+    throw PTTError(std::string("rigctld ") + command + ": reply carries no status code ('" +
+                   text + "')");
+  }
   if (code != 0) {
     throw PTTError(std::string("rigctld ") + command + " rejected: RPRT " +
                    std::to_string(code));
+  }
+}
+
+/// Best-effort key-down, used when start-up fails after the radio may already
+/// be keyed. Never throws: the caller is already unwinding.
+void try_release(int handle) noexcept {
+  try {
+    send_command(handle, "T 0\n");
+    check_reply(handle, "T 0");
+  } catch (const std::exception&) {
+    log().warning("hamlib PTT: could not release after a failed key-up; the "
+                  "transmitter may still be keyed");
   }
 }
 
@@ -207,7 +236,15 @@ HamlibPtt::HamlibPtt(const std::string& spec) {
   set_reply_timeout(socket_, kHamlibReplyTimeoutSeconds);
   try {
     send_command(socket_, "T 1\n");
-    check_reply(socket_, "T 1");
+    // A reply that times out does not mean the command was not acted on, and a
+    // throw here skips the destructor that would otherwise key down. Release
+    // before giving up rather than walking away from a keyed transmitter.
+    try {
+      check_reply(socket_, "T 1");
+    } catch (...) {
+      try_release(socket_);
+      throw;
+    }
   } catch (...) {
     close_socket(socket_);
     socket_ = -1;

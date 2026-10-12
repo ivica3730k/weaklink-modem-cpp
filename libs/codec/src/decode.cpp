@@ -211,9 +211,11 @@ DecodeResult decode(const float* samples, std::size_t count, const ModemConfig& 
   // supply one, so the rest of the function reads the same either way.
   std::set<int> local_emitted;
   std::map<int, ByteVector> local_pending;
+  std::map<int, ByteVector> local_ready;
   std::map<int, int> local_copies_seen;
   std::set<int>& emitted_indices = state ? state->emitted : local_emitted;
   std::map<int, ByteVector>& pending_blocks = state ? state->pending_blocks : local_pending;
+  std::map<int, ByteVector>& ready_blocks = state ? state->ready_blocks : local_ready;
   std::map<int, int>& copies_seen = state ? state->copies_seen : local_copies_seen;
 
   if (peaks.empty()) {
@@ -226,13 +228,20 @@ DecodeResult decode(const float* samples, std::size_t count, const ModemConfig& 
       state->session_ended = true;
       // Session is over: flush pending blocks even though the last of them
       // may have fewer than block_repeats copies.
+      // Confirmed-but-held blocks outrank pending ones at the same index, so
+      // they seed the map and the pending copies only fill the gaps.
+      std::map<int, ByteVector> tail_blocks = state->ready_blocks;
+      for (const auto& entry : state->pending_blocks) {
+        tail_blocks.emplace(entry.first, entry.second);
+      }
       ByteVector tail;
-      for (const auto& entry : pending_blocks) {
+      for (const auto& entry : tail_blocks) {
         if (emitted_indices.find(entry.first) == emitted_indices.end()) {
           tail.insert(tail.end(), entry.second.begin(), entry.second.end());
           emitted_indices.insert(entry.first);
         }
       }
+      state->ready_blocks.clear();
       pending_blocks.clear();
       copies_seen.clear();
       state->combining_buffer.clear();
@@ -340,10 +349,26 @@ DecodeResult decode(const float* samples, std::size_t count, const ModemConfig& 
   std::map<int, ByteVector> current_message;
 
   const auto flush_message = [&]() {
+    // Blocks held back by an earlier call rejoin the message they belong to.
+    for (auto& entry : ready_blocks) {
+      current_message.emplace(entry.first, std::move(entry.second));
+    }
+    ready_blocks.clear();
+    // Streaming hands bytes to a sink that cannot reorder them afterwards, so
+    // a confirmed block waits while any earlier block is still collecting
+    // copies. Batch mode has no such constraint: nothing has been emitted yet
+    // and flush_all merges both sets before this runs.
+    const int barrier = (streaming && !pending_blocks.empty())
+                            ? pending_blocks.begin()->first
+                            : std::numeric_limits<int>::max();
     // Emit in block-index order. A missing index leaves a gap rather than
     // truncating the tail, so one unrecoverable slot does not cost the rest of
     // a long stream.
-    for (const auto& entry : current_message) {
+    for (auto& entry : current_message) {
+      if (entry.first >= barrier) {
+        ready_blocks.emplace(entry.first, std::move(entry.second));
+        continue;
+      }
       if (emitted_indices.find(entry.first) != emitted_indices.end()) {
         continue;
       }

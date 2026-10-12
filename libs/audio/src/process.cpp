@@ -262,9 +262,17 @@ void Pipe::kill() {
     // child is left for the destructor's non-blocking reap, which returns zero
     // if the process has not exited yet and leaves a zombie behind.
     int status = 0;
-    ::waitpid(static_cast<pid_t>(pid_), &status, 0);
-    finished_ = true;
-    status_ = WIFEXITED(status) ? WEXITSTATUS(status) : -1;
+    pid_t reaped = -1;
+    do {
+      reaped = ::waitpid(static_cast<pid_t>(pid_), &status, 0);
+    } while (reaped < 0 && errno == EINTR);
+    // The CLI's signal handlers do not set SA_RESTART, so an interrupt can cut
+    // the wait short. Only a real reap may mark the child finished; claiming it
+    // otherwise would have the destructor skip its own cleanup.
+    if (reaped > 0) {
+      finished_ = true;
+      status_ = WIFEXITED(status) ? WEXITSTATUS(status) : -1;
+    }
   }
   close_pipe();
 }
