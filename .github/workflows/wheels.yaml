@@ -1,0 +1,84 @@
+name: wheels
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+# Wheels are published artifacts, so they are built on GitHub-hosted runners
+# rather than the self-hosted pool, which also executes pull request code.
+jobs:
+  # A pull request builds one wheel and runs the Python suite on it: enough to
+  # catch a broken binding without paying for the whole matrix. Merges and
+  # releases build everything.
+  wheels:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include: >-
+          ${{ github.event_name == 'pull_request'
+          && fromJSON('[{"name":"linux x86_64","runner":"ubuntu-24.04"}]')
+          || fromJSON('[
+          {"name":"linux x86_64","runner":"ubuntu-24.04"},
+          {"name":"linux aarch64","runner":"ubuntu-24.04-arm"},
+          {"name":"macos arm64","runner":"macos-14"},
+          {"name":"macos x86_64","runner":"macos-15-intel"}]') }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+
+      - uses: pypa/cibuildwheel@b3395e271a35f73dad77f21802abe9b986dfe299  # v4.3.1
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7
+        with:
+          name: wheels-${{ strategy.job-index }}
+          path: wheelhouse/*.whl
+
+  sdist:
+    name: sdist
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7
+        with:
+          python-version: "3.12"
+
+      - name: Build and install from the sdist
+        # The sdist is what every platform without a wheel falls back to, so
+        # it has to carry enough to configure CMake and compile.
+        run: |
+          pipx run build --sdist
+          python -m pip install dist/*.tar.gz
+          python -m pip install pytest numpy
+          python -c "import weaklink.modem; print(weaklink.modem.sample_rate())"
+
+      - name: Test the installed package
+        # Run from a directory with no source tree, so the import cannot come
+        # from the working copy instead of the installed wheel.
+        run: cd "$RUNNER_TEMP" && pytest "$GITHUB_WORKSPACE/tests/python" -q
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7
+        with:
+          name: sdist
+          path: dist/*.tar.gz
+
+  publish:
+    name: publish to PyPI
+    needs: [wheels, sdist]
+    if: github.event_name == 'release'
+    runs-on: ubuntu-24.04
+    environment: pypi
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8
+        with:
+          path: dist
+          merge-multiple: true
+
+      - uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33  # v1
+        with:
+          password: ${{ secrets.PYPI_API_TOKEN }}

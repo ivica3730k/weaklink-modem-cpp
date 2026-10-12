@@ -15,7 +15,7 @@ COMPOSE      ?= docker compose
 PREFIX       ?= /usr/local
 
 .PHONY: help build-mac build-mac-arm build-mac-universal build-mac-host build-linux build-linux-arm \
-        build-windows test test-mac interop install example clean distclean
+        build-windows test test-mac interop install example python clean distclean
 
 help:
 	@echo "Targets:"
@@ -30,6 +30,7 @@ help:
 	@echo "  interop          cross-validate Python WAV <-> C++ WAV"
 	@echo "  install          install headers, libraries and the CMake package (PREFIX=...)"
 	@echo "  example          build examples/embed against a throwaway install"
+	@echo "  python           build the extension into .venv and run the Python suite"
 	@echo "  clean            remove build trees, keep binaries"
 	@echo "  distclean        remove build trees and binaries"
 
@@ -111,8 +112,17 @@ example:
 	cmake --build $(BUILD_DIR)/example -j $(JOBS)
 	cd $(BUILD_DIR)/example && ./weaklink-embed-example
 
+# An editable install, so the extension is rebuilt from the working tree each
+# time rather than from a copy taken at install time.
+python:
+	python3 -m venv $(BUILD_DIR)/venv
+	$(BUILD_DIR)/venv/bin/pip install -q --upgrade pip
+	$(BUILD_DIR)/venv/bin/pip install -q pytest numpy
+	$(BUILD_DIR)/venv/bin/pip install -v -e .
+	$(BUILD_DIR)/venv/bin/pytest tests/python -q
+
 clean:
 	rm -rf $(BUILD_DIR)
 
 distclean: clean
-	rm -rf $(BIN_DIR)
+	rm -rf $(BIN_DIR) dist wheelhouse *.egg-info
