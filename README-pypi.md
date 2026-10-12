@@ -193,3 +193,5 @@ except ConfigError as error:
 
 The C++ library is consumable on its own through CMake, via `find_package`,
 `FetchContent` or `add_subdirectory`.
+
+MIT licensed.

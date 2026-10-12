@@ -355,3 +355,7 @@ Deliberate, and limited to these:
    which is what lets it decode OOK where the reference cannot.
 3. **The benchmark uses threads, not processes**, since there is no pickling
    constraint to work around.
+
+## License
+
+MIT. See [LICENSE](LICENSE).

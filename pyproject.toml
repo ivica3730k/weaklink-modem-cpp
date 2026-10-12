@@ -8,6 +8,8 @@ version = "1.0.0"
 description = "MFSK modem with a C++ backend: bytes in, audio out, bytes back"
 readme = "README-pypi.md"
 requires-python = ">=3.9"
+license = "MIT"
+license-files = ["LICENSE"]
 dependencies = ["numpy>=1.20"]
 classifiers = [
   "Development Status :: 5 - Production/Stable",
