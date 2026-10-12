@@ -73,7 +73,12 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - runner: weaklink-runner
+          # GitHub-hosted on purpose: this job builds a published artifact and
+          # holds contents: write. The self-hosted pool also runs pull request
+          # code and reaches the host Docker daemon, which is not a machine a
+          # release should be cut on -- and releases are too rare to save
+          # anything by moving them.
+          - runner: ubuntu-24.04
             arch: x86_64
           - runner: ubuntu-24.04-arm
             arch: arm64

@@ -23,7 +23,9 @@ jobs:
           - runner: macos-14
             arch: arm64
             target: build-mac-arm
-          - runner: macos-13
+          # macos-13 was retired; its jobs queue forever waiting for a runner
+          # that no longer exists.
+          - runner: macos-15-intel
             arch: x86_64
             target: build-mac
     runs-on: ${{ matrix.runner }}
