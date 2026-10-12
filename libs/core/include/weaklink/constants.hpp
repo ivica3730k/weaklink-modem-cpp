@@ -45,6 +45,9 @@ inline constexpr double kHamlibPttLeadSeconds = 0.1;
 /// it out before the relay drops.
 inline constexpr double kHamlibPttTailSeconds = 0.1;
 
+/// How long to wait for a rigctld ``RPRT`` reply before giving up on it.
+inline constexpr double kHamlibReplyTimeoutSeconds = 2.0;
+
 /// Live-rx poll cadence.
 inline constexpr int kLiveRxPollMs = 100;
 

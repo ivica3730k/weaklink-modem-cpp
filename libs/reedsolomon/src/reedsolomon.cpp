@@ -153,14 +153,20 @@ Bytes correct_errata(const Bytes& codeword, const std::vector<uint8_t>& synd,
   return out;
 }
 
-}  // namespace
-
-ReedSolomonCodec::ReedSolomonCodec(int parity_bytes)
-    : parity_bytes_(parity_bytes), generator_(generator_poly(parity_bytes)) {
+/// Range-check before building the generator: member initialisers run before
+/// the constructor body, so an out-of-range count would otherwise grow a
+/// polynomial of that degree before anything rejected it.
+Bytes checked_generator_poly(int parity_bytes) {
   if (parity_bytes < 0 || parity_bytes > 254) {
     throw std::invalid_argument("parity_bytes must be 0..254");
   }
+  return generator_poly(parity_bytes);
 }
+
+}  // namespace
+
+ReedSolomonCodec::ReedSolomonCodec(int parity_bytes)
+    : parity_bytes_(parity_bytes), generator_(checked_generator_poly(parity_bytes)) {}
 
 Bytes ReedSolomonCodec::encode(const Bytes& message) const {
   if (message.size() + static_cast<std::size_t>(parity_bytes_) > kMaxCodewordBytes) {

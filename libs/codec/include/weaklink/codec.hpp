@@ -92,8 +92,22 @@ struct StreamingState {
   /// Decoded but not yet confirmed by ``block_repeats`` copies.
   std::map<int, ByteVector> pending_blocks;
   std::map<int, int> copies_seen;
+  /// Confirmed blocks held back because an earlier block is still waiting for
+  /// copies. Bytes already handed to the sink cannot be reordered afterwards,
+  /// so a later block waits here until the earlier one resolves.
+  std::map<int, ByteVector> ready_blocks;
+  /// Soft LLRs of slots that failed to decode on their own. Kept across calls
+  /// so copies of one block that straddle two polling windows still combine:
+  /// the audio behind them is already past the cursor by then.
+  std::vector<std::vector<double>> combining_buffer;
   int expected_block_index = 0;
 };
+
+/// Hand back everything the streaming state is still holding -- confirmed
+/// blocks waiting on an earlier one, plus unconfirmed copies -- in block-index
+/// order, and forget it. A batch decode does this itself; callers need it for
+/// the end-of-input paths that never reach a decode at all.
+ByteVector flush_streaming_state(StreamingState& state);
 
 struct DecodeResult {
   ByteVector bytes;

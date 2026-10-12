@@ -18,7 +18,7 @@ jobs:
     name: macOS universal
     runs-on: macos-14
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
 
       - name: Resolve version
         id: version
@@ -55,14 +55,14 @@ jobs:
           cp weaklink-modem "weaklink-modem-macos-latest"
           cp weaklink-modem-benchmark "weaklink-modem-benchmark-macos-$V"
 
-      - uses: softprops/action-gh-release@v3
+      - uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64  # v3
         if: github.event_name == 'release'
         with:
           files: |
             binaries/macos-universal/weaklink-modem-macos-*
             binaries/macos-universal/weaklink-modem-benchmark-macos-*
 
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7
         with:
           name: weaklink-modem-macos-universal
           path: binaries/macos-universal/weaklink-modem*-macos-*
@@ -73,13 +73,18 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # GitHub-hosted on purpose: this job builds a published artifact and
+          # holds contents: write. The self-hosted pool also runs pull request
+          # code and reaches the host Docker daemon, which is not a machine a
+          # release should be cut on -- and releases are too rare to save
+          # anything by moving them.
           - runner: ubuntu-24.04
             arch: x86_64
           - runner: ubuntu-24.04-arm
             arch: arm64
     runs-on: ${{ matrix.runner }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
 
       - name: Resolve version
         id: version
@@ -132,12 +137,12 @@ jobs:
           cp dist/weaklink-modem "dist/weaklink-modem-linux-${{ matrix.arch }}-latest"
           cp dist/weaklink-modem-benchmark "dist/weaklink-modem-benchmark-linux-${{ matrix.arch }}-$V"
 
-      - uses: softprops/action-gh-release@v3
+      - uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64  # v3
         if: github.event_name == 'release'
         with:
           files: dist/weaklink-modem*-linux-${{ matrix.arch }}-*
 
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7
         with:
           name: weaklink-modem-linux-${{ matrix.arch }}
           path: dist/weaklink-modem*-linux-${{ matrix.arch }}-*

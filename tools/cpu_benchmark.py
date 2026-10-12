@@ -28,6 +28,41 @@ from pathlib import Path
 
 DEFAULT_PYTHON_REPO = Path(__file__).resolve().parents[2] / "weaklink-9a3ice"
 
+
+def wav_duration_seconds(path: Path) -> float:
+    """Seconds of audio in a WAV, read from its own header.
+
+    The sample rate is a modem option rather than a constant, and the RIFF
+    header is not audio, so deriving the duration from the file size alone
+    misstates the real-time load these figures are reported against.
+    """
+    with path.open("rb") as handle:
+        if handle.read(4) != b"RIFF":
+            raise ValueError(f"{path} is not a RIFF file")
+        handle.read(4)  # RIFF size
+        if handle.read(4) != b"WAVE":
+            raise ValueError(f"{path} is not a WAVE file")
+        channels = rate = bits = 0
+        while True:
+            header = handle.read(8)
+            if len(header) < 8:
+                raise ValueError(f"{path} has no data chunk")
+            tag = header[:4]
+            size = int.from_bytes(header[4:], "little")
+            if tag == b"fmt ":
+                fmt = handle.read(size)
+                channels = int.from_bytes(fmt[2:4], "little")
+                rate = int.from_bytes(fmt[4:8], "little")
+                bits = int.from_bytes(fmt[14:16], "little")
+            elif tag == b"data":
+                frame_bytes = channels * (bits // 8)
+                if rate <= 0 or frame_bytes <= 0:
+                    raise ValueError(f"{path} has an unusable fmt chunk")
+                return size / (rate * frame_bytes)
+            else:
+                handle.seek(size + (size & 1), 1)
+
+
 BAUDS = (45.0, 300.0, 1200.0)
 NUM_TONES = 4
 PAYLOAD = b"weaklink cpu benchmark payload 0123456789 " * 5
@@ -129,7 +164,7 @@ def main() -> int:
                 if out.rstrip(b"\x00") != PAYLOAD:
                     print(f"  warning: {runner.name} rx did not recover the payload at {baud:g} baud")
 
-            seconds = wavs["c++"].stat().st_size / (4 * 48000)
+            seconds = wav_duration_seconds(wavs["c++"])
             rows.append((baud, seconds, tx, rx))
             print(
                 f"{baud:>6g} baud  ({seconds:6.1f} s audio)  "

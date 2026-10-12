@@ -147,11 +147,38 @@ double to_db(double value) {
 
 }  // namespace
 
+ByteVector flush_streaming_state(StreamingState& state) {
+  // Confirmed-but-held blocks outrank pending copies at the same index.
+  std::map<int, ByteVector> held = state.ready_blocks;
+  for (const auto& entry : state.pending_blocks) {
+    held.emplace(entry.first, entry.second);
+  }
+  ByteVector out;
+  for (const auto& entry : held) {
+    if (state.emitted.find(entry.first) == state.emitted.end()) {
+      out.insert(out.end(), entry.second.begin(), entry.second.end());
+      state.emitted.insert(entry.first);
+    }
+  }
+  state.ready_blocks.clear();
+  state.pending_blocks.clear();
+  state.copies_seen.clear();
+  state.combining_buffer.clear();
+  return out;
+}
+
 DecodeResult decode(const float* samples, std::size_t count, const ModemConfig& config,
                     bool streaming, StreamingState* state) {
+  // Batch mode gets no second call, so returning early still has to release
+  // whatever the state is holding: those blocks decoded cleanly and nothing
+  // downstream will ask for them again.
+  const auto abandon = [&]() -> DecodeResult {
+    return DecodeResult{(!streaming && state) ? flush_streaming_state(*state) : ByteVector{}, 0};
+  };
+
   if (count == 0) {
     log().debug("empty sample buffer; nothing to decode");
-    return {};
+    return abandon();
   }
   const auto samples_per_symbol = static_cast<std::size_t>(config.waveform().samples_per_symbol());
 
@@ -194,7 +221,7 @@ DecodeResult decode(const float* samples, std::size_t count, const ModemConfig& 
       dsp::demodulate_soft(samples, count, config.waveform(), coarse_offset);
   if (coarse_magnitudes.rows() == 0) {
     log().debug("demodulator returned no symbols; sample count below one symbol");
-    return {};
+    return abandon();
   }
 
   const std::vector<int>& preamble = preamble_for(config.waveform().num_tones());
@@ -211,9 +238,11 @@ DecodeResult decode(const float* samples, std::size_t count, const ModemConfig& 
   // supply one, so the rest of the function reads the same either way.
   std::set<int> local_emitted;
   std::map<int, ByteVector> local_pending;
+  std::map<int, ByteVector> local_ready;
   std::map<int, int> local_copies_seen;
   std::set<int>& emitted_indices = state ? state->emitted : local_emitted;
   std::map<int, ByteVector>& pending_blocks = state ? state->pending_blocks : local_pending;
+  std::map<int, ByteVector>& ready_blocks = state ? state->ready_blocks : local_ready;
   std::map<int, int>& copies_seen = state ? state->copies_seen : local_copies_seen;
 
   if (peaks.empty()) {
@@ -226,21 +255,13 @@ DecodeResult decode(const float* samples, std::size_t count, const ModemConfig& 
       state->session_ended = true;
       // Session is over: flush pending blocks even though the last of them
       // may have fewer than block_repeats copies.
-      ByteVector tail;
-      for (const auto& entry : pending_blocks) {
-        if (emitted_indices.find(entry.first) == emitted_indices.end()) {
-          tail.insert(tail.end(), entry.second.begin(), entry.second.end());
-          emitted_indices.insert(entry.first);
-        }
-      }
-      pending_blocks.clear();
-      copies_seen.clear();
+      ByteVector tail = flush_streaming_state(*state);
       state->expected_block_index = 0;
       if (!tail.empty()) {
         return DecodeResult{std::move(tail), 0};
       }
     }
-    return {};
+    return abandon();
   }
 
   // Peaks found, so the offset estimate is proven. Cache it if it was fresh.
@@ -339,10 +360,26 @@ DecodeResult decode(const float* samples, std::size_t count, const ModemConfig& 
   std::map<int, ByteVector> current_message;
 
   const auto flush_message = [&]() {
+    // Blocks held back by an earlier call rejoin the message they belong to.
+    for (auto& entry : ready_blocks) {
+      current_message.emplace(entry.first, std::move(entry.second));
+    }
+    ready_blocks.clear();
+    // Streaming hands bytes to a sink that cannot reorder them afterwards, so
+    // a confirmed block waits while any earlier block is still collecting
+    // copies. Batch mode has no such constraint: nothing has been emitted yet
+    // and flush_all merges both sets before this runs.
+    const int barrier = (streaming && !pending_blocks.empty())
+                            ? pending_blocks.begin()->first
+                            : std::numeric_limits<int>::max();
     // Emit in block-index order. A missing index leaves a gap rather than
     // truncating the tail, so one unrecoverable slot does not cost the rest of
     // a long stream.
-    for (const auto& entry : current_message) {
+    for (auto& entry : current_message) {
+      if (entry.first >= barrier) {
+        ready_blocks.emplace(entry.first, std::move(entry.second));
+        continue;
+      }
       if (emitted_indices.find(entry.first) != emitted_indices.end()) {
         continue;
       }
@@ -352,22 +389,21 @@ DecodeResult decode(const float* samples, std::size_t count, const ModemConfig& 
     current_message.clear();
   };
 
-  const auto flush_pending_all = [&](const char* reason) {
+  const auto flush_all = [&](const char* reason) {
     // Emit every buffered block, confirmed or not. Called at a message
     // boundary or session end, where the message is over and partial copy
-    // counts are all we are going to get.
-    if (pending_blocks.empty()) {
-      return;
-    }
-    log().debug("flushing ", pending_blocks.size(), " unfinalised block(s) (", reason, ")");
-    for (const auto& entry : pending_blocks) {
-      if (emitted_indices.find(entry.first) == emitted_indices.end()) {
-        output.insert(output.end(), entry.second.begin(), entry.second.end());
-        emitted_indices.insert(entry.first);
+    // counts are all we are going to get. Pending blocks are merged into the
+    // confirmed set first: emitting the two separately would put a later
+    // confirmed block ahead of an earlier pending one and corrupt byte order.
+    if (!pending_blocks.empty()) {
+      log().debug("flushing ", pending_blocks.size(), " unfinalised block(s) (", reason, ")");
+      for (auto& entry : pending_blocks) {
+        current_message.emplace(entry.first, std::move(entry.second));
       }
+      pending_blocks.clear();
+      copies_seen.clear();
     }
-    pending_blocks.clear();
-    copies_seen.clear();
+    flush_message();
   };
 
   const auto observe_copy = [&](int header_block_index, const ByteVector& content) {
@@ -388,7 +424,9 @@ DecodeResult decode(const float* samples, std::size_t count, const ModemConfig& 
   int copies_seen_this_block = 0;
   // Soft LLRs of consecutive slots that failed to decode independently; once
   // block_repeats of them accumulate we try soft-LLR combining.
-  std::vector<std::vector<double>> combining_buffer;
+  std::vector<std::vector<double>> local_combining;
+  std::vector<std::vector<double>>& combining_buffer =
+      state ? state->combining_buffer : local_combining;
 
   std::size_t slot = 0;
   while (slot + 1 < peaks.size()) {
@@ -423,8 +461,7 @@ DecodeResult decode(const float* samples, std::size_t count, const ModemConfig& 
         continue;  // retry the same slot
       }
       log().debug("slot ", slot, " span ", span, ": message boundary");
-      flush_pending_all("message boundary");
-      flush_message();
+      flush_all("message boundary");
       // A new message starts fresh: the previous message's block indices stop
       // acting as dedup keys against it.
       emitted_indices.clear();
@@ -506,14 +543,14 @@ DecodeResult decode(const float* samples, std::size_t count, const ModemConfig& 
     ++slot;
   }
 
-  flush_message();
   if (streaming && state) {
+    flush_message();
     // Persist the unfinalised state so a block whose copies straddle two
     // streaming calls picks up where it left off.
     state->expected_block_index = expected_block_index;
   } else {
     // Batch mode (drain / WAV rx): no more calls are coming.
-    flush_pending_all("batch mode end");
+    flush_all("batch mode end");
   }
 
   if (total_rs_errors_corrected > 0) {

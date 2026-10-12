@@ -2,7 +2,9 @@
 
 #include <cerrno>
 #include <chrono>
+#include <cstdlib>
 #include <cstring>
+#include <string>
 #include <thread>
 
 #if defined(_WIN32)
@@ -82,21 +84,119 @@ int connect_to(const std::string& host, int port) {
   return handle;
 }
 
+// A dropped rigctld connection must surface as a PTTError. Without this the
+// send raises SIGPIPE, and the CLI only handles SIGINT and SIGTERM, so a broken
+// control link would take the whole process down mid-transmission.
+#if defined(MSG_NOSIGNAL)
+constexpr int kSendFlags = MSG_NOSIGNAL;
+#else
+constexpr int kSendFlags = 0;
+#endif
+
+/// Platforms without MSG_NOSIGNAL (macOS, the BSDs) suppress it per socket.
+void suppress_sigpipe(int handle) {
+#if !defined(MSG_NOSIGNAL) && defined(SO_NOSIGPIPE)
+  int on = 1;
+  ::setsockopt(handle, SOL_SOCKET, SO_NOSIGPIPE, &on, sizeof(on));
+#else
+  (void)handle;
+#endif
+}
+
 void send_command(int handle, const char* command) {
   const std::size_t length = std::strlen(command);
   std::size_t sent = 0;
   while (sent < length) {
 #if defined(_WIN32)
     const int written = ::send(static_cast<SocketHandle>(handle), command + sent,
-                               static_cast<int>(length - sent), 0);
+                               static_cast<int>(length - sent), kSendFlags);
 #else
-    const ssize_t written = ::send(handle, command + sent, length - sent, 0);
+    const ssize_t written = ::send(handle, command + sent, length - sent, kSendFlags);
 #endif
     if (written <= 0) {
       throw PTTError(std::string("rigctld ") + command + " failed: " + std::strerror(errno));
     }
     sent += static_cast<std::size_t>(written);
   }
+}
+
+/// rigctld answers every command with ``RPRT <code>``. Sending the bytes only
+/// means they left the socket: a refused key-up still reports RPRT != 0, and
+/// transmitting over an unkeyed radio loses the whole message silently.
+void check_reply(int handle, const char* command) {
+  char reply[64] = {0};
+  std::size_t filled = 0;
+  bool complete = false;
+  while (filled + 1 < sizeof(reply)) {
+#if defined(_WIN32)
+    const int got = ::recv(static_cast<SocketHandle>(handle), reply + filled,
+                           static_cast<int>(sizeof(reply) - 1 - filled), 0);
+#else
+    const ssize_t got = ::recv(handle, reply + filled, sizeof(reply) - 1 - filled, 0);
+#endif
+    if (got <= 0) {
+      throw PTTError(std::string("rigctld ") + command + ": no reply (" +
+                     std::strerror(errno) + ")");
+    }
+    filled += static_cast<std::size_t>(got);
+    if (std::memchr(reply, '\n', filled) != nullptr) {
+      complete = true;
+      break;
+    }
+  }
+  const std::string text(reply, filled);
+  // Anything short of a terminated, parsable ``RPRT <code>`` is treated as a
+  // failure: the whole point of reading the reply is that a keyed transmitter
+  // must never be assumed from bytes that merely look encouraging.
+  if (!complete) {
+    throw PTTError(std::string("rigctld ") + command + ": unterminated reply '" + text + "'");
+  }
+  const std::size_t marker = text.find("RPRT");
+  if (marker == std::string::npos) {
+    throw PTTError(std::string("rigctld ") + command + ": unexpected reply '" + text + "'");
+  }
+  const char* cursor = text.c_str() + marker + 4;
+  while (*cursor == ' ' || *cursor == '\t') {
+    ++cursor;
+  }
+  char* end = nullptr;
+  const long code = std::strtol(cursor, &end, 10);
+  if (end == cursor) {
+    throw PTTError(std::string("rigctld ") + command + ": reply carries no status code ('" +
+                   text + "')");
+  }
+  if (code != 0) {
+    throw PTTError(std::string("rigctld ") + command + " rejected: RPRT " +
+                   std::to_string(code));
+  }
+}
+
+/// Best-effort key-down, used when start-up fails after the radio may already
+/// be keyed. Never throws: the caller is already unwinding.
+void try_release(int handle) noexcept {
+  try {
+    send_command(handle, "T 0\n");
+    check_reply(handle, "T 0");
+  } catch (const std::exception&) {
+    log().warning("hamlib PTT: could not release after a failed key-up; the "
+                  "transmitter may still be keyed");
+  }
+}
+
+/// Bound the reply wait: a rigctld that accepts the connection and then goes
+/// quiet would otherwise block the transmission forever.
+void set_reply_timeout(int handle, double seconds) {
+#if defined(_WIN32)
+  auto milliseconds = static_cast<DWORD>(seconds * 1000.0);
+  ::setsockopt(static_cast<SocketHandle>(handle), SOL_SOCKET, SO_RCVTIMEO,
+               reinterpret_cast<const char*>(&milliseconds), sizeof(milliseconds));
+#else
+  timeval timeout{};
+  timeout.tv_sec = static_cast<time_t>(seconds);
+  timeout.tv_usec = static_cast<suseconds_t>((seconds - static_cast<double>(timeout.tv_sec)) *
+                                             1e6);
+  ::setsockopt(handle, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
+#endif
 }
 
 void sleep_seconds(double seconds) {
@@ -132,8 +232,19 @@ HamlibPtt::HamlibPtt(const std::string& spec) {
   const auto endpoint = parse_endpoint(spec);
   log().debug("hamlib PTT: connecting to ", endpoint.first, ":", endpoint.second);
   socket_ = connect_to(endpoint.first, endpoint.second);
+  suppress_sigpipe(socket_);
+  set_reply_timeout(socket_, kHamlibReplyTimeoutSeconds);
   try {
     send_command(socket_, "T 1\n");
+    // A reply that times out does not mean the command was not acted on, and a
+    // throw here skips the destructor that would otherwise key down. Release
+    // before giving up rather than walking away from a keyed transmitter.
+    try {
+      check_reply(socket_, "T 1");
+    } catch (...) {
+      try_release(socket_);
+      throw;
+    }
   } catch (...) {
     close_socket(socket_);
     socket_ = -1;
@@ -155,6 +266,7 @@ HamlibPtt::~HamlibPtt() {
   sleep_seconds(kHamlibPttTailSeconds);
   try {
     send_command(socket_, "T 0\n");
+    check_reply(socket_, "T 0");
     log().debug("hamlib PTT: released");
   } catch (const std::exception& error) {
     log().warning("hamlib PTT: release failed: ", error.what());

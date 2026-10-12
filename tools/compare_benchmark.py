@@ -89,6 +89,12 @@ def main() -> int:
         if want is None or got is None:
             verdict = "n/a"
             delta_text = "-"
+            # A reference that found a cliff where the port found none means the
+            # port stopped decoding that configuration outright. Reporting that
+            # as "not applicable" would let a total regression pass silently.
+            if want is not None:
+                verdict = "WORSE"
+                worse.append(f"{describe(config)}: {want:+d} dB -> no decode at any SNR")
         else:
             delta = got - want  # positive means the port needs more SNR
             delta_text = f"{delta:+d} dB"

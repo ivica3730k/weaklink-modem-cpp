@@ -13,6 +13,9 @@ jobs:
   # actually execute on the hardware they target.
   macos:
     name: macOS ${{ matrix.arch }}
+    # Merge-only, like everything a pull request does not need: the PR signal
+    # is one arm64 build and the loopback check that runs on it.
+    if: github.event_name != 'pull_request'
     strategy:
       fail-fast: false
       matrix:
@@ -20,7 +23,9 @@ jobs:
           - runner: macos-14
             arch: arm64
             target: build-mac-arm
-          - runner: macos-13
+          # macos-13 was retired; its jobs queue forever waiting for a runner
+          # that no longer exists.
+          - runner: macos-15-intel
             arch: x86_64
             target: build-mac
     runs-on: ${{ matrix.runner }}
@@ -48,13 +53,14 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - service: linux-amd64
-            arch: x86_64
-            runner: ubuntu-24.04
-          - service: linux-arm64
-            arch: arm64
-            runner: ubuntu-24.04-arm
+        # A pull request builds arm64 alone, because that is what its single
+        # loopback check needs. Merges build every architecture. A job-level
+        # `if` cannot see the matrix context, so the event has to pick the
+        # matrix itself.
+        include: >-
+          ${{ github.event_name == 'pull_request'
+          && fromJSON('[{"service":"linux-arm64","arch":"arm64","runner":"ubuntu-24.04-arm"}]')
+          || fromJSON('[{"service":"linux-amd64","arch":"x86_64","runner":"weaklink-runner"},{"service":"linux-arm64","arch":"arm64","runner":"ubuntu-24.04-arm"}]') }}
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v7
@@ -85,16 +91,22 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - { name: "ubuntu 22.04",          image: "ubuntu:22.04",                     runner: ubuntu-24.04,     arch: x86_64 }
-          - { name: "ubuntu 24.04",          image: "ubuntu:24.04",                     runner: ubuntu-24.04,     arch: x86_64 }
-          - { name: "debian bookworm",       image: "debian:bookworm-slim",             runner: ubuntu-24.04,     arch: x86_64 }
-          - { name: "debian trixie",         image: "debian:trixie-slim",               runner: ubuntu-24.04,     arch: x86_64 }
-          - { name: "arch",                  image: "archlinux:latest",                 runner: ubuntu-24.04,     arch: x86_64 }
-          - { name: "ubuntu 24.04 arm64",    image: "ubuntu:24.04",                     runner: ubuntu-24.04-arm, arch: arm64 }
-          - { name: "debian bookworm arm64", image: "debian:bookworm-slim",             runner: ubuntu-24.04-arm, arch: arm64 }
-          - { name: "raspberry pi os",       image: "dtcooper/raspberrypi-os:bookworm", runner: ubuntu-24.04-arm, arch: arm64 }
-          - { name: "arch arm64",            image: "menci/archlinuxarm:base",          runner: ubuntu-24.04-arm, arch: arm64 }
+        # One image on a pull request -- enough to catch a binary that will not
+        # start or a round-trip that breaks -- and the full sweep on merge,
+        # which is where the portability claim is actually proven.
+        include: >-
+          ${{ github.event_name == 'pull_request'
+          && fromJSON('[{"name":"ubuntu 24.04 arm64","image":"ubuntu:24.04","runner":"ubuntu-24.04-arm","arch":"arm64"}]')
+          || fromJSON('[
+          {"name":"ubuntu 22.04","image":"ubuntu:22.04","runner":"weaklink-runner","arch":"x86_64"},
+          {"name":"ubuntu 24.04","image":"ubuntu:24.04","runner":"weaklink-runner","arch":"x86_64"},
+          {"name":"debian bookworm","image":"debian:bookworm-slim","runner":"weaklink-runner","arch":"x86_64"},
+          {"name":"debian trixie","image":"debian:trixie-slim","runner":"weaklink-runner","arch":"x86_64"},
+          {"name":"arch","image":"archlinux:latest","runner":"weaklink-runner","arch":"x86_64"},
+          {"name":"ubuntu 24.04 arm64","image":"ubuntu:24.04","runner":"ubuntu-24.04-arm","arch":"arm64"},
+          {"name":"debian bookworm arm64","image":"debian:bookworm-slim","runner":"ubuntu-24.04-arm","arch":"arm64"},
+          {"name":"raspberry pi os","image":"dtcooper/raspberrypi-os:bookworm","runner":"ubuntu-24.04-arm","arch":"arm64"},
+          {"name":"arch arm64","image":"menci/archlinuxarm:base","runner":"ubuntu-24.04-arm","arch":"arm64"}]') }}
     steps:
       - uses: actions/download-artifact@v8
         with:
@@ -124,6 +136,7 @@ jobs:
   # Cross-validation against the Python implementation. It needs both repos, so
   # it only runs when the reference is checked out alongside this one.
   interop:
+    if: github.event_name != 'pull_request'
     runs-on: macos-14
     steps:
       - uses: actions/checkout@v7

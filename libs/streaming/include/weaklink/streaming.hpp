@@ -3,6 +3,7 @@
 #include <cstddef>
 #include <deque>
 #include <functional>
+#include <mutex>
 #include <string>
 #include <vector>
 
@@ -56,12 +57,17 @@ class StreamingRxDecoder {
   std::size_t max_window_samples() const { return max_window_samples_; }
 
  private:
+  /// Callers must hold ``chunks_mutex_``.
   std::size_t total_buffered() const;
   void write_out(const ByteVector& bytes);
 
   ModemConfig config_;
   ByteSink sink_;
   int sample_rate_;
+  // The live audio callback appends while the polling thread consumes, so
+  // every touch of chunks_/samples_before_buffer_ is guarded. The lock is
+  // never held across a decode: that would stall the audio thread.
+  mutable std::mutex chunks_mutex_;
   std::deque<Samples> chunks_;
   std::size_t samples_before_buffer_ = 0;
   std::size_t cursor_ = 0;
