@@ -124,6 +124,65 @@ weaklink-modem rx [--modem-wav PATH | --modem-audio-input DEVICE] [same modem fl
 Diagnostics never touch stdout or stderr -- stdout is the byte pipe. They go to
 `./log.txt` unless `--modem-log-file` says otherwise.
 
+## Using it as a library
+
+The CLI is a thin shell over `weaklink/api.hpp`, which is the whole public
+surface: `build_config`, `tx` and `rx`. Every route in gives the same target.
+
+Straight from GitHub, with nothing installed and nothing vendored:
+
+```cmake
+include(FetchContent)
+FetchContent_Declare(weaklink-modem
+  GIT_REPOSITORY https://github.com/ivica3730k/weaklink-modem-cpp.git
+  GIT_TAG 0.1.0
+  GIT_SHALLOW TRUE)
+
+# Skips a second clone of PortAudio. Leave it on if you open a sound device.
+set(WEAKLINK_LIVE_AUDIO OFF CACHE BOOL "" FORCE)
+FetchContent_MakeAvailable(weaklink-modem)
+
+target_link_libraries(my-app PRIVATE weaklink::modem)
+```
+
+Pin a tag rather than a branch: a branch name re-resolves, so the build depends
+on when it ran. The other two routes give the same target:
+
+```cmake
+find_package(weaklink-modem REQUIRED)         # an installed copy
+add_subdirectory(third_party/weaklink-modem)  # a vendored checkout
+
+target_link_libraries(my-app PRIVATE weaklink::modem)
+```
+
+```cpp
+#include "weaklink/api.hpp"
+
+weaklink::api::ModemOptions options;
+options.baud = 300.0;
+
+weaklink::api::TxTarget target;
+target.wav_path = "out.wav";
+weaklink::api::tx(payload, options, 100, target);
+
+weaklink::api::RxSource source;
+source.wav_path = "out.wav";
+const weaklink::ByteVector decoded = weaklink::api::rx(source, options);
+```
+
+`weaklink::modem` pulls in everything. The individual libraries are exported
+too -- `weaklink::codec`, `weaklink::dsp`, `weaklink::rng` and the rest -- for
+code that wants one layer without the audio I/O above it.
+
+Embedding the project turns the CLI, the benchmark, the test suite and the
+install rules off by default, so a parent build gets the libraries and nothing
+else. `WEAKLINK_BUILD_APPS`, `WEAKLINK_BUILD_TESTS` and `WEAKLINK_INSTALL`
+override that. The static libraries are built position independent, so they can
+be linked into a shared object such as a Python extension module.
+
+Two complete consumer projects to copy from: `examples/fetch` (FetchContent
+from GitHub) and `examples/embed` (`find_package` against an install).
+
 ## Architecture
 
 Signal chain, TX top-down (RX is the mirror):

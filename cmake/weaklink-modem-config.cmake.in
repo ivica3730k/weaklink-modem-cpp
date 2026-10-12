@@ -1,0 +1,14 @@
+@PACKAGE_INIT@
+
+include(CMakeFindDependencyMacro)
+
+# Recorded at configure time: a build without live audio has no PortAudio in
+# its link interface and so must not demand Threads from its consumers.
+set(WEAKLINK_LIVE_AUDIO @WEAKLINK_LIVE_AUDIO@)
+if(WEAKLINK_LIVE_AUDIO)
+  find_dependency(Threads)
+endif()
+
+include("${CMAKE_CURRENT_LIST_DIR}/weaklink-modem-targets.cmake")
+
+check_required_components(weaklink-modem)

@@ -12,9 +12,10 @@ BUILD_DIR    := build
 CMAKE_FLAGS  ?= -DCMAKE_BUILD_TYPE=Release
 JOBS         ?= $(shell getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4)
 COMPOSE      ?= docker compose
+PREFIX       ?= /usr/local
 
 .PHONY: help build-mac build-mac-arm build-mac-universal build-mac-host build-linux build-linux-arm \
-        build-windows test test-mac interop clean distclean
+        build-windows test test-mac interop install example clean distclean
 
 help:
 	@echo "Targets:"
@@ -27,6 +28,8 @@ help:
 	@echo "  build-windows    Windows x86_64 (not implemented yet)"
 	@echo "  test             configure, build and run the Catch2 suite"
 	@echo "  interop          cross-validate Python WAV <-> C++ WAV"
+	@echo "  install          install headers, libraries and the CMake package (PREFIX=...)"
+	@echo "  example          build examples/embed against a throwaway install"
 	@echo "  clean            remove build trees, keep binaries"
 	@echo "  distclean        remove build trees and binaries"
 
@@ -91,6 +94,22 @@ test-mac:
 
 interop: test-mac
 	python3 tools/interop_check.py --cpp-bin $(CURDIR)/$(BIN_DIR)/test/weaklink-modem
+
+# ---- Library consumers -----------------------------------------------------
+
+install:
+	cmake -S . -B $(BUILD_DIR)/install -G Ninja $(CMAKE_FLAGS) -DWEAKLINK_BUILD_TESTS=OFF
+	cmake --build $(BUILD_DIR)/install -j $(JOBS)
+	cmake --install $(BUILD_DIR)/install --prefix $(PREFIX)
+
+# Installs into the build tree rather than PREFIX: the point is to exercise the
+# find_package path end to end without needing a writable system prefix.
+example:
+	$(MAKE) install PREFIX=$(CURDIR)/$(BUILD_DIR)/example-prefix
+	cmake -S examples/embed -B $(BUILD_DIR)/example -G Ninja $(CMAKE_FLAGS) \
+	      -DCMAKE_PREFIX_PATH=$(CURDIR)/$(BUILD_DIR)/example-prefix
+	cmake --build $(BUILD_DIR)/example -j $(JOBS)
+	cd $(BUILD_DIR)/example && ./weaklink-embed-example
 
 clean:
 	rm -rf $(BUILD_DIR)

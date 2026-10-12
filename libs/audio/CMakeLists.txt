@@ -5,7 +5,6 @@ add_library(wl_audio STATIC
   src/process.cpp
   src/wav.cpp)
 
-target_include_directories(wl_audio PUBLIC include)
 target_link_libraries(wl_audio PUBLIC wl_core PRIVATE wl_warnings)
 
 if(WEAKLINK_LIVE_AUDIO)
@@ -14,3 +13,5 @@ if(WEAKLINK_LIVE_AUDIO)
 else()
   target_compile_definitions(wl_audio PUBLIC WEAKLINK_HAVE_PORTAUDIO=0)
 endif()
+
+weaklink_library(wl_audio)

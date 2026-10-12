@@ -20,6 +20,8 @@ make test                                 # configure, build, run the suite
 ./binaries/test/weaklink-tests "~[slow]"  # quick tests only
 ./binaries/test/weaklink-tests "[rng]"    # one tag
 make interop                              # cross-check against the Python repo
+make install PREFIX=/usr/local            # headers, libs, find_package(weaklink-modem)
+make example                              # build examples/embed via find_package
 
 cmake -S . -B build/dev -G Ninja -DCMAKE_EXPORT_COMPILE_COMMANDS=ON  # for clangd
 ```
@@ -52,6 +54,13 @@ One CMake target per concern under `libs/`, each with its public headers in
 - **`wl_api`** — public API, mirroring the CLI one-to-one.
 
 Apps: `apps/modem` (the `weaklink-modem` CLI) and `apps/benchmark`.
+
+Consumers link `weaklink::modem`, a facade over `wl_api`; the individual
+libraries are exported under the same `weaklink::` namespace.
+`cmake/WeaklinkLibrary.cmake` holds the per-library alias/include/install
+boilerplate and `cmake/Install.cmake` the export set and config package. The
+namespace is shared across the family while the package name is
+`weaklink-modem`, so a sibling package can add its own `weaklink::<name>` later.
 
 ## Constraints and conventions
 

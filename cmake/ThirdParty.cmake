@@ -8,13 +8,20 @@
 include(FetchContent)
 
 add_library(wl_pocketfft INTERFACE)
-target_include_directories(wl_pocketfft SYSTEM INTERFACE "${PROJECT_SOURCE_DIR}/third_party/pocketfft")
+target_include_directories(wl_pocketfft SYSTEM INTERFACE
+  "$<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/third_party/pocketfft>")
+# Only wl_dsp compiles against pocketfft, but CMake records even a PRIVATE
+# dependency of a static library in the exported link interface, so the target
+# has to exist for consumers even though its headers never reach them.
+weaklink_support_library(wl_pocketfft)
 
 add_library(wl_cli11 INTERFACE)
-target_include_directories(wl_cli11 SYSTEM INTERFACE "${PROJECT_SOURCE_DIR}/third_party/cli11")
+target_include_directories(wl_cli11 SYSTEM INTERFACE
+  "$<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/third_party/cli11>")
 
 add_library(wl_catch2 INTERFACE)
-target_include_directories(wl_catch2 SYSTEM INTERFACE "${PROJECT_SOURCE_DIR}/third_party/catch2")
+target_include_directories(wl_catch2 SYSTEM INTERFACE
+  "$<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/third_party/catch2>")
 
 if(WEAKLINK_LIVE_AUDIO)
   find_package(Threads REQUIRED)
@@ -47,8 +54,14 @@ if(WEAKLINK_LIVE_AUDIO)
 
   add_library(wl_portaudio INTERFACE)
   if(TARGET portaudio_static)
-    target_link_libraries(wl_portaudio INTERFACE portaudio_static Threads::Threads)
+    set(WEAKLINK_PORTAUDIO_TARGET portaudio_static)
   else()
-    target_link_libraries(wl_portaudio INTERFACE portaudio Threads::Threads)
+    set(WEAKLINK_PORTAUDIO_TARGET portaudio)
   endif()
+  target_link_libraries(wl_portaudio INTERFACE ${WEAKLINK_PORTAUDIO_TARGET} Threads::Threads)
+
+  # The fetched PortAudio has to join our export set as well; otherwise an
+  # installed weaklink points at a target that only existed in the build tree.
+  weaklink_support_library(wl_portaudio)
+  weaklink_support_library(${WEAKLINK_PORTAUDIO_TARGET})
 endif()

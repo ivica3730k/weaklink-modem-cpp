@@ -9,3 +9,5 @@ else()
     -Wall -Wextra -Wpedantic -Wshadow -Wconversion -Wsign-conversion
     -Wnon-virtual-dtor -Wold-style-cast -Woverloaded-virtual)
 endif()
+
+weaklink_support_library(wl_warnings)
