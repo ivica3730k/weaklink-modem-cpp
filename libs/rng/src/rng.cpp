@@ -167,6 +167,11 @@ uint64_t NumpyGenerator::bounded(uint64_t bound_exclusive) {
   }
   // Lemire's multiply-shift with rejection, matching ``Generator.integers``.
   const uint32_t range32 = static_cast<uint32_t>(range);
+  // At the full 32-bit range the span below wraps to zero and every draw comes
+  // back as zero. NumPy takes the raw word here, so taking it keeps parity.
+  if (range32 == 0xFFFFFFFFu) {
+    return next_uint32();
+  }
   const uint32_t span = range32 + 1u;
   uint64_t product = static_cast<uint64_t>(next_uint32()) * span;
   uint32_t leftover = static_cast<uint32_t>(product & 0xFFFFFFFFu);

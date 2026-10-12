@@ -8,8 +8,12 @@
 #include <string>
 #include <vector>
 
-#if !defined(_WIN32)
+#if defined(_WIN32)
+#include <io.h>
+#else
+#include <cerrno>
 #include <signal.h>
+#include <unistd.h>
 #endif
 
 #include "CLI11.hpp"
@@ -171,16 +175,31 @@ void add_modem_args(CLI::App* command, ModemArgs& args) {
 bool read_stdin_chunk(weaklink::ByteVector& chunk) {
   constexpr std::size_t kChunkBytes = 4096;
   chunk.resize(kChunkBytes);
-  const std::size_t read = std::fread(chunk.data(), 1, kChunkBytes, stdin);
-  chunk.resize(read);
-  if (read == 0) {
+  // Read the descriptor rather than going through stdio: fread only returns
+  // once the whole buffer is full, so on a pipe that stays open the encoder
+  // would sit on a complete block until the writer closes it.
+  long got = 0;
+  while (true) {
+#if defined(_WIN32)
+    got = _read(_fileno(stdin), chunk.data(), static_cast<unsigned int>(kChunkBytes));
+#else
+    got = static_cast<long>(::read(STDIN_FILENO, chunk.data(), kChunkBytes));
+    if (got < 0 && errno == EINTR) {
+      // Ctrl-C lands here; anything else is a signal the stream survives.
+      if (interrupted()) {
+        chunk.clear();
+        return false;
+      }
+      continue;
+    }
+#endif
+    break;
+  }
+  if (got <= 0) {
+    chunk.clear();
     return false;
   }
-  // An EINTR'd read leaves the error flag set; clearing it keeps a later read
-  // from failing outright on a stream that is still perfectly good.
-  if (std::ferror(stdin) != 0) {
-    std::clearerr(stdin);
-  }
+  chunk.resize(static_cast<std::size_t>(got));
   return !interrupted();
 }
 

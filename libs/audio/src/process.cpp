@@ -258,6 +258,13 @@ int Pipe::finish() {
 void Pipe::kill() {
   if (pid_ > 0 && !finished_) {
     ::kill(static_cast<pid_t>(pid_), SIGKILL);
+    // SIGKILL cannot be caught, so this wait cannot hang -- and without it the
+    // child is left for the destructor's non-blocking reap, which returns zero
+    // if the process has not exited yet and leaves a zombie behind.
+    int status = 0;
+    ::waitpid(static_cast<pid_t>(pid_), &status, 0);
+    finished_ = true;
+    status_ = WIFEXITED(status) ? WEXITSTATUS(status) : -1;
   }
   close_pipe();
 }

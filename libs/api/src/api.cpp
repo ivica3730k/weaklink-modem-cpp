@@ -182,9 +182,14 @@ ByteVector rx(const RxSource& source, const ModemOptions& options,
   }
 
   const ModemConfig config = build_config(options);
+  const bool live = source.samples == nullptr && source.wav_path.empty();
   ByteVector collected;
   const auto emit = [&](const ByteVector& bytes) {
-    collected.insert(collected.end(), bytes.begin(), bytes.end());
+    // Live reception returns empty by contract and ends only when should_stop
+    // fires, so accumulating there grows with the whole listening session.
+    if (!live) {
+      collected.insert(collected.end(), bytes.begin(), bytes.end());
+    }
     if (sink) {
       sink(bytes);
     }

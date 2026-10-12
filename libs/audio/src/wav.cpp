@@ -184,6 +184,12 @@ WavReader::WavReader(const std::string& path) : stream_(path, std::ios::binary) 
         throw ConfigError("unsupported WAV encoding (compressed audio) in " + path);
       }
       is_float_ = format == kFormatFloat;
+      // decode_sample reads a double for every float width that is not 32 bits,
+      // so a header declaring a narrower one would read past the sample buffer.
+      if (is_float_ && bits_per_sample_ != 32 && bits_per_sample_ != 64) {
+        throw ConfigError("unsupported WAV float bit depth: " +
+                          std::to_string(bits_per_sample_));
+      }
       have_format = true;
     } else if (std::memcmp(tag, "data", 4) == 0) {
       data_offset_ = stream_.tellg();
@@ -197,6 +203,14 @@ WavReader::WavReader(const std::string& path) : stream_(path, std::ios::binary) 
 
   if (!have_format || data_offset_ == std::streampos(0)) {
     throw ConfigError("WAV is missing a fmt or data chunk: " + path);
+  }
+  // The declared data size is whatever the file says; a truncated or hostile
+  // header must not make callers reserve storage for frames that are not there.
+  stream_.seekg(0, std::ios::end);
+  const auto file_end = static_cast<std::uint64_t>(stream_.tellg());
+  const auto available = file_end - static_cast<std::uint64_t>(data_offset_);
+  if (static_cast<std::uint64_t>(data_bytes) > available) {
+    data_bytes = static_cast<std::uint32_t>(available);
   }
   const auto frame_bytes =
       static_cast<std::uint32_t>(channels_ * (bits_per_sample_ / 8));

@@ -12,6 +12,11 @@ function(weaklink_library target)
   set_target_properties(${target} PROPERTIES EXPORT_NAME "${export_name}")
   add_library(weaklink::${export_name} ALIAS ${target})
 
+  # CMAKE_CXX_STANDARD only reaches targets created inside this project, so a
+  # consumer compiling at an older standard would fail on std::optional in the
+  # public headers. The requirement has to travel with the exported target.
+  target_compile_features(${target} PUBLIC cxx_std_17)
+
   # The build tree reads headers where they sit; an installed tree reads them
   # from the prefix. Without the two interfaces the exported target would hand
   # consumers a path that only exists on the machine that built it.

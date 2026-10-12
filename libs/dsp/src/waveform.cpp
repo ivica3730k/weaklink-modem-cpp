@@ -356,6 +356,12 @@ double estimate_frequency_offset(const float* samples, std::size_t count,
                                  const std::vector<int>& expected_symbols,
                                  double search_range_hz, double resolution_hz,
                                  double prior_offset_hz) {
+  // The sweep below advances by resolution_hz: zero would leave it on the same
+  // offset forever and a negative step walks away from the stopping point, so a
+  // bad option value must fail here rather than hang the decode.
+  if (!(resolution_hz > 0.0) || !std::isfinite(resolution_hz)) {
+    throw ConfigError("frequency resolution must be positive and finite");
+  }
   const auto samples_per_symbol = static_cast<std::size_t>(config.samples_per_symbol());
   const std::size_t expected_length = expected_symbols.size() * samples_per_symbol;
   if (count < expected_length) {

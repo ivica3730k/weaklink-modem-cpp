@@ -115,10 +115,16 @@ void PlaybackStream::write(const float* samples, std::size_t count) {
     return;
   }
   if (impl_->pipe) {
-    // A broken pipe means the sink went away; stop feeding rather than
-    // spinning on a dead child.
+    // A broken pipe means the sink went away. Reap the child for its exit
+    // status and report: staying quiet here would have close() skip its own
+    // status check and let tx claim success while dropping the rest of the
+    // audio.
     if (!impl_->pipe->write(samples, count * sizeof(float))) {
       impl_->closed = true;
+      const int status = impl_->pipe->finish();
+      impl_->pipe.reset();
+      throw ConfigError("paplay exited " + std::to_string(status) +
+                        " before the transmission finished");
     }
     return;
   }

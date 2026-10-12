@@ -235,6 +235,7 @@ DecodeResult decode(const float* samples, std::size_t count, const ModemConfig& 
       }
       pending_blocks.clear();
       copies_seen.clear();
+      state->combining_buffer.clear();
       state->expected_block_index = 0;
       if (!tail.empty()) {
         return DecodeResult{std::move(tail), 0};
@@ -352,22 +353,21 @@ DecodeResult decode(const float* samples, std::size_t count, const ModemConfig& 
     current_message.clear();
   };
 
-  const auto flush_pending_all = [&](const char* reason) {
+  const auto flush_all = [&](const char* reason) {
     // Emit every buffered block, confirmed or not. Called at a message
     // boundary or session end, where the message is over and partial copy
-    // counts are all we are going to get.
-    if (pending_blocks.empty()) {
-      return;
-    }
-    log().debug("flushing ", pending_blocks.size(), " unfinalised block(s) (", reason, ")");
-    for (const auto& entry : pending_blocks) {
-      if (emitted_indices.find(entry.first) == emitted_indices.end()) {
-        output.insert(output.end(), entry.second.begin(), entry.second.end());
-        emitted_indices.insert(entry.first);
+    // counts are all we are going to get. Pending blocks are merged into the
+    // confirmed set first: emitting the two separately would put a later
+    // confirmed block ahead of an earlier pending one and corrupt byte order.
+    if (!pending_blocks.empty()) {
+      log().debug("flushing ", pending_blocks.size(), " unfinalised block(s) (", reason, ")");
+      for (auto& entry : pending_blocks) {
+        current_message.emplace(entry.first, std::move(entry.second));
       }
+      pending_blocks.clear();
+      copies_seen.clear();
     }
-    pending_blocks.clear();
-    copies_seen.clear();
+    flush_message();
   };
 
   const auto observe_copy = [&](int header_block_index, const ByteVector& content) {
@@ -388,7 +388,9 @@ DecodeResult decode(const float* samples, std::size_t count, const ModemConfig& 
   int copies_seen_this_block = 0;
   // Soft LLRs of consecutive slots that failed to decode independently; once
   // block_repeats of them accumulate we try soft-LLR combining.
-  std::vector<std::vector<double>> combining_buffer;
+  std::vector<std::vector<double>> local_combining;
+  std::vector<std::vector<double>>& combining_buffer =
+      state ? state->combining_buffer : local_combining;
 
   std::size_t slot = 0;
   while (slot + 1 < peaks.size()) {
@@ -423,8 +425,7 @@ DecodeResult decode(const float* samples, std::size_t count, const ModemConfig& 
         continue;  // retry the same slot
       }
       log().debug("slot ", slot, " span ", span, ": message boundary");
-      flush_pending_all("message boundary");
-      flush_message();
+      flush_all("message boundary");
       // A new message starts fresh: the previous message's block indices stop
       // acting as dedup keys against it.
       emitted_indices.clear();
@@ -506,14 +507,14 @@ DecodeResult decode(const float* samples, std::size_t count, const ModemConfig& 
     ++slot;
   }
 
-  flush_message();
   if (streaming && state) {
+    flush_message();
     // Persist the unfinalised state so a block whose copies straddle two
     // streaming calls picks up where it left off.
     state->expected_block_index = expected_block_index;
   } else {
     // Batch mode (drain / WAV rx): no more calls are coming.
-    flush_pending_all("batch mode end");
+    flush_all("batch mode end");
   }
 
   if (total_rs_errors_corrected > 0) {

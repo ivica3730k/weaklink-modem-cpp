@@ -92,6 +92,10 @@ struct StreamingState {
   /// Decoded but not yet confirmed by ``block_repeats`` copies.
   std::map<int, ByteVector> pending_blocks;
   std::map<int, int> copies_seen;
+  /// Soft LLRs of slots that failed to decode on their own. Kept across calls
+  /// so copies of one block that straddle two polling windows still combine:
+  /// the audio behind them is already past the cursor by then.
+  std::vector<std::vector<double>> combining_buffer;
   int expected_block_index = 0;
 };
 

@@ -4,6 +4,7 @@
 #include <chrono>
 #include <cmath>
 #include <limits>
+#include <mutex>
 #include <thread>
 
 #include "weaklink/constants.hpp"
@@ -54,6 +55,7 @@ StreamingRxDecoder::StreamingRxDecoder(const ModemConfig& config, ByteSink sink)
 }
 
 void StreamingRxDecoder::buffer(const float* samples, std::size_t count) {
+  std::lock_guard<std::mutex> guard(chunks_mutex_);
   chunks_.emplace_back(samples, samples + count);
 }
 
@@ -85,9 +87,6 @@ void StreamingRxDecoder::on_session_end() {
 }
 
 bool StreamingRxDecoder::try_emit() {
-  if (chunks_.empty()) {
-    return false;
-  }
   // Wait until there is enough audio to bracket at least one slot between two
   // preambles; decoding less than that can only waste work.
   const std::size_t min_group_symbols =
@@ -95,18 +94,25 @@ bool StreamingRxDecoder::try_emit() {
   const auto min_wait_samples = static_cast<std::size_t>(
       static_cast<double>(min_group_symbols) / config_.waveform().baud() *
       static_cast<double>(sample_rate_));
-  const std::size_t seen = total_buffered();
-  if (seen - cursor_ < min_wait_samples) {
-    return false;
-  }
 
   Samples buffer;
-  buffer.reserve(seen - samples_before_buffer_);
-  for (const Samples& chunk : chunks_) {
-    buffer.insert(buffer.end(), chunk.begin(), chunk.end());
+  std::size_t buffer_start = 0;
+  {
+    std::lock_guard<std::mutex> guard(chunks_mutex_);
+    if (chunks_.empty()) {
+      return false;
+    }
+    const std::size_t seen = total_buffered();
+    if (seen - cursor_ < min_wait_samples) {
+      return false;
+    }
+    buffer.reserve(seen - samples_before_buffer_);
+    for (const Samples& chunk : chunks_) {
+      buffer.insert(buffer.end(), chunk.begin(), chunk.end());
+    }
+    buffer_start = samples_before_buffer_;
   }
 
-  const std::size_t buffer_start = samples_before_buffer_;
   const std::size_t cursor_in_buffer = cursor_ > buffer_start ? cursor_ - buffer_start : 0;
   if (cursor_in_buffer >= buffer.size()) {
     return false;
@@ -122,6 +128,7 @@ bool StreamingRxDecoder::try_emit() {
   write_out(result.bytes);
   cursor_ = buffer_start + cursor_in_buffer + result.safe_cursor_samples;
 
+  std::lock_guard<std::mutex> guard(chunks_mutex_);
   // Retire chunks the cursor has moved past.
   while (!chunks_.empty()) {
     const std::size_t first_chunk_end = samples_before_buffer_ + chunks_.front().size();
@@ -161,15 +168,19 @@ void StreamingRxDecoder::drain() {
   while (try_emit()) {
     // Keep going while the buffer is still advancing.
   }
-  if (chunks_.empty()) {
-    return;
-  }
   Samples buffer;
-  for (const Samples& chunk : chunks_) {
-    buffer.insert(buffer.end(), chunk.begin(), chunk.end());
+  std::size_t buffer_start = 0;
+  {
+    std::lock_guard<std::mutex> guard(chunks_mutex_);
+    if (chunks_.empty()) {
+      return;
+    }
+    for (const Samples& chunk : chunks_) {
+      buffer.insert(buffer.end(), chunk.begin(), chunk.end());
+    }
+    buffer_start = samples_before_buffer_;
   }
-  const std::size_t cursor_in_buffer =
-      cursor_ > samples_before_buffer_ ? cursor_ - samples_before_buffer_ : 0;
+  const std::size_t cursor_in_buffer = cursor_ > buffer_start ? cursor_ - buffer_start : 0;
   if (cursor_in_buffer >= buffer.size()) {
     return;
   }
@@ -179,20 +190,27 @@ void StreamingRxDecoder::drain() {
       codec::decode(buffer.data() + cursor_in_buffer, buffer.size() - cursor_in_buffer, config_,
                     false, &state_);
   write_out(result.bytes);
-  samples_before_buffer_ += buffer.size();
+  std::lock_guard<std::mutex> guard(chunks_mutex_);
+  samples_before_buffer_ = buffer_start + buffer.size();
   chunks_.clear();
 }
 
 void StreamingRxDecoder::log_audio_level() const {
-  if (chunks_.empty() || !Logger::enabled(LogLevel::kInfo)) {
+  if (!Logger::enabled(LogLevel::kInfo)) {
     return;
   }
   const auto wanted = static_cast<std::size_t>(sample_rate_);  // one second
   Samples recent;
-  for (auto chunk = chunks_.rbegin(); chunk != chunks_.rend(); ++chunk) {
-    recent.insert(recent.begin(), chunk->begin(), chunk->end());
-    if (recent.size() >= wanted) {
-      break;
+  {
+    std::lock_guard<std::mutex> guard(chunks_mutex_);
+    if (chunks_.empty()) {
+      return;
+    }
+    for (auto chunk = chunks_.rbegin(); chunk != chunks_.rend(); ++chunk) {
+      recent.insert(recent.begin(), chunk->begin(), chunk->end());
+      if (recent.size() >= wanted) {
+        break;
+      }
     }
   }
   if (recent.size() > wanted) {
