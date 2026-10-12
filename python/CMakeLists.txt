@@ -13,4 +13,9 @@ target_link_libraries(weaklink_core PRIVATE weaklink::modem wl_warnings)
 
 # The static libraries are already position independent (see the root
 # CMakeLists), which is what makes linking them into this shared object work.
-install(TARGETS weaklink_core LIBRARY DESTINATION weaklink/modem)
+# Tagged with a component so the wheel can take this and nothing else.
+# PortAudio registers its own install rules for headers, a static library and
+# its documentation, and those would otherwise land at the top of
+# site-packages, where they do not belong and could collide with another
+# package's files.
+install(TARGETS weaklink_core LIBRARY DESTINATION weaklink/modem COMPONENT python)

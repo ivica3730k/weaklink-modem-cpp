@@ -24,8 +24,12 @@ Source = "https://github.com/ivica3730k/weaklink-modem-cpp"
 
 [tool.scikit-build]
 minimum-version = "0.8"
-cmake.version = ">=3.16"
+# Development.Module, which python/CMakeLists.txt uses, needs 3.18. A source
+# install finding an older CMake would configure and then fail.
+cmake.version = ">=3.18"
 wheel.packages = ["python/weaklink"]
+# Only the extension module; see python/CMakeLists.txt for what this keeps out.
+install.components = ["python"]
 # The CLI, the benchmark and the Catch2 suite are no part of a wheel.
 cmake.define.WEAKLINK_PYTHON = "ON"
 cmake.define.WEAKLINK_BUILD_APPS = "OFF"

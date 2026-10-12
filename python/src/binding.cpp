@@ -12,6 +12,7 @@
 
 #include <cstddef>
 #include <memory>
+#include <mutex>
 #include <optional>
 #include <string>
 #include <vector>
@@ -51,27 +52,60 @@ py::bytes to_bytes(const wl::ByteVector& data) {
   return py::bytes(reinterpret_cast<const char*>(data.data()), data.size());
 }
 
-/// Let Ctrl-C out of a blocking call.
+/// Lets Ctrl-C out of a blocking call, and remembers that it did.
 ///
 /// The modem runs with the GIL released, so KeyboardInterrupt cannot surface
 /// on its own: the interpreter only notices a signal when someone asks it to.
-/// Returning true unwinds the C++ loop, and the pending exception is raised
-/// once the call returns.
-bool interpreter_wants_stop() {
-  const py::gil_scoped_acquire gil;
-  return PyErr_CheckSignals() != 0;
-}
+/// The latch matters because PyErr_CheckSignals reports a given interrupt
+/// once -- asking a second time comes back clean while the exception is still
+/// pending, and a transmission would resume and play out its tail.
+class StopFlag {
+ public:
+  bool operator()() {
+    if (stopped_) {
+      return true;
+    }
+    const py::gil_scoped_acquire gil;
+    stopped_ = PyErr_CheckSignals() != 0;
+    return stopped_;
+  }
 
-/// Hand decoded bytes to a Python callable from whatever thread the decoder
-/// emits on, which is never the audio callback thread.
-wl::streaming::ByteSink make_sink(const py::object& on_bytes) {
-  if (on_bytes.is_none()) {
+  bool stopped() const { return stopped_; }
+
+ private:
+  bool stopped_ = false;
+};
+
+/// Hand decoded bytes to a Python callable, borrowing it rather than owning
+/// it.
+///
+/// The decoder copies its sink internally and drops those copies while the
+/// GIL is released. A captured py::object would move a refcount there, which
+/// is fatal; a py::handle copies and dies touching nothing. The caller keeps
+/// the one owning reference, and must outlive the call.
+wl::streaming::ByteSink borrow_sink(const py::object& owner) {
+  if (owner.is_none()) {
     return nullptr;
   }
-  return [on_bytes](const wl::ByteVector& chunk) {
+  const py::handle borrowed = owner;
+  return [borrowed](const wl::ByteVector& chunk) {
     const py::gil_scoped_acquire gil;
-    on_bytes(to_bytes(chunk));
+    borrowed(to_bytes(chunk));
   };
+}
+
+/// Reject a missing or non-callable sink before anything is built around it.
+///
+/// The decoder calls its sink unconditionally when bytes land, so a Receiver
+/// without one is a std::bad_function_call waiting for its first decode.
+py::object checked_callback(py::object on_bytes) {
+  if (on_bytes.is_none()) {
+    throw wl::ConfigError("Receiver needs on_bytes= to deliver decoded bytes to");
+  }
+  if (PyCallable_Check(on_bytes.ptr()) == 0) {
+    throw wl::ConfigError("on_bytes must be callable");
+  }
+  return on_bytes;
 }
 
 wl::api::ModemOptions default_options() { return wl::api::ModemOptions{}; }
@@ -101,6 +135,7 @@ py::object tx_wrapper(const py::object& data, const wl::api::ModemOptions& optio
   }
 
   wl::dsp::Samples samples;
+  StopFlag stop;
   {
     const py::gil_scoped_release release;
     bool sent = false;
@@ -112,7 +147,13 @@ py::object tx_wrapper(const py::object& data, const wl::api::ModemOptions& optio
       sent = true;
       return true;
     };
-    samples = wl::api::tx(source, options, tx_volume, target, interpreter_wants_stop);
+    samples = wl::api::tx(source, options, tx_volume, target,
+                          [&stop] { return stop(); });
+  }
+  if (stop.stopped()) {
+    // The modem has unwound and any device is closed; now let the pending
+    // KeyboardInterrupt out.
+    throw py::error_already_set();
   }
 
   // A sink was named, so the audio has already gone there and there is nothing
@@ -150,11 +191,15 @@ py::object rx_wrapper(const py::object& samples, const wl::api::ModemOptions& op
     source.from_audio_device = true;
   }
 
-  const wl::streaming::ByteSink sink = make_sink(on_bytes);
+  const wl::streaming::ByteSink sink = borrow_sink(on_bytes);
   wl::ByteVector decoded;
+  StopFlag stop;
   {
     const py::gil_scoped_release release;
-    decoded = wl::api::rx(source, options, sink, interpreter_wants_stop);
+    decoded = wl::api::rx(source, options, sink, [&stop] { return stop(); });
+  }
+  if (stop.stopped()) {
+    throw py::error_already_set();
   }
 
   // Live reception ends only when the caller interrupts it, and its bytes went
@@ -171,41 +216,71 @@ py::object rx_wrapper(const py::object& samples, const wl::api::ModemOptions& op
 /// keep in step with the first.
 class Receiver {
  public:
-  Receiver(const wl::api::ModemOptions& options, const py::object& on_bytes)
+  Receiver(const wl::api::ModemOptions& options, py::object on_bytes)
       : config_(wl::api::build_config(options)),
         options_(options),
-        decoder_(std::make_unique<wl::streaming::StreamingRxDecoder>(config_,
-                                                                    make_sink(on_bytes))),
-        on_bytes_(on_bytes) {}
+        // Held before the decoder is built and destroyed after it, because
+        // the decoder's sink borrows this reference for its whole life.
+        on_bytes_(checked_callback(std::move(on_bytes))),
+        decoder_(std::make_unique<wl::streaming::StreamingRxDecoder>(
+            config_, borrow_sink(on_bytes_))) {}
 
   void push(const FloatArray& chunk) {
     const wl::dsp::Samples samples = to_samples(chunk);
+    const Busy busy(*this);
     const py::gil_scoped_release release;
     decoder_->push(samples);
   }
 
   void drain() {
+    const Busy busy(*this);
     const py::gil_scoped_release release;
     decoder_->drain();
   }
 
   /// Open an input device and decode until interrupted. Blocks.
   void listen(const std::string& audio_input) {
-    // Built before the GIL goes: make_sink copies a Python object, and
-    // touching a refcount without the GIL is how interpreters die.
-    const wl::streaming::ByteSink sink = make_sink(on_bytes_);
-    const py::gil_scoped_release release;
-    wl::streaming::live_stream_decode(config_, audio_input, sink, interpreter_wants_stop);
+    // Built while the GIL is still held; the sink itself only borrows.
+    const wl::streaming::ByteSink sink = borrow_sink(on_bytes_);
+    StopFlag stop;
+    {
+      const Busy busy(*this);
+      const py::gil_scoped_release release;
+      wl::streaming::live_stream_decode(config_, audio_input, sink,
+                                        [&stop] { return stop(); });
+    }
+    if (stop.stopped()) {
+      throw py::error_already_set();
+    }
   }
 
   int sample_rate() const { return decoder_->sample_rate(); }
   const wl::api::ModemOptions& options() const { return options_; }
 
  private:
+  /// One thread in the decoder at a time.
+  ///
+  /// The decoder guards its audio queue but advances its cursor and streaming
+  /// state outside that lock, so two threads in push/drain/listen would lose
+  /// or duplicate bytes. Rejecting the second caller beats blocking it: a
+  /// push waiting behind a listen would wait forever.
+  class Busy {
+   public:
+    explicit Busy(Receiver& receiver) : lock_(receiver.in_use_, std::try_to_lock) {
+      if (!lock_.owns_lock()) {
+        throw wl::ConfigError("this Receiver is already in use by another thread");
+      }
+    }
+
+   private:
+    std::unique_lock<std::mutex> lock_;
+  };
+
   wl::codec::ModemConfig config_;
   wl::api::ModemOptions options_;
-  std::unique_ptr<wl::streaming::StreamingRxDecoder> decoder_;
   py::object on_bytes_;
+  std::unique_ptr<wl::streaming::StreamingRxDecoder> decoder_;
+  std::mutex in_use_;
 };
 
 }  // namespace
@@ -290,8 +365,8 @@ PYBIND11_MODULE(_core, module) {
 
   py::class_<Receiver>(module, "Receiver",
                        "Streaming receiver: push audio in, decoded bytes come out.")
-      .def(py::init<const wl::api::ModemOptions&, const py::object&>(),
-           py::arg("options") = default_options(), py::arg("on_bytes") = py::none())
+      .def(py::init<const wl::api::ModemOptions&, py::object>(),
+           py::arg("options") = default_options(), py::arg("on_bytes"))
       .def("push", &Receiver::push, py::arg("samples"),
            "Feed a chunk of float32 mono audio at sample_rate.")
       .def("drain", &Receiver::drain,

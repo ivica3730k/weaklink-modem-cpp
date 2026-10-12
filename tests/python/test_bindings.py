@@ -8,6 +8,8 @@ Python exception.
 
 from __future__ import annotations
 
+import threading
+
 import numpy as np
 import pytest
 
@@ -77,15 +79,75 @@ def test_receiver_streams_in_chunks():
     assert bytes(received).rstrip(b"\x00") == PAYLOAD
 
 
-def test_receiver_accepts_awkward_input():
-    # Not float32, not contiguous: both have to be converted rather than
-    # reinterpreted, or the decoder reads garbage.
+def test_receiver_accepts_a_wider_dtype():
+    # float64 has to be converted rather than reinterpreted, or the decoder
+    # reads half a sample at a time.
     samples = tx(PAYLOAD)
     received = bytearray()
     receiver = Receiver(ModemOptions(), on_bytes=received.extend)
     receiver.push(np.asarray(samples, dtype=np.float64))
     receiver.drain()
     assert bytes(received).rstrip(b"\x00") == PAYLOAD
+
+
+def test_receiver_accepts_a_strided_view():
+    # A view with a gap between samples carries the right audio at the wrong
+    # stride. Reading it as contiguous would decode interleaved padding.
+    samples = tx(PAYLOAD)
+    padded = np.zeros(samples.size * 2, dtype=np.float32)
+    padded[::2] = samples
+    strided = padded[::2]
+    assert not strided.flags["C_CONTIGUOUS"]
+
+    received = bytearray()
+    receiver = Receiver(ModemOptions(), on_bytes=received.extend)
+    receiver.push(strided)
+    receiver.drain()
+    assert bytes(received).rstrip(b"\x00") == PAYLOAD
+
+
+def test_receiver_requires_a_callback():
+    # The decoder calls its sink unconditionally; without one the first
+    # decoded block would take the interpreter down.
+    with pytest.raises(ConfigError, match="on_bytes"):
+        Receiver(ModemOptions(), on_bytes=None)
+    with pytest.raises(ConfigError, match="callable"):
+        Receiver(ModemOptions(), on_bytes="not callable")
+
+
+def test_receiver_rejects_overlapping_calls():
+    # The decoder advances its cursor outside the lock that guards its audio
+    # queue, so two threads inside it would lose or duplicate bytes. The
+    # second caller is turned away rather than left to block.
+    samples = tx(PAYLOAD)
+    entered = threading.Event()
+    rejected: list[Exception] = []
+    release = threading.Event()
+
+    def slow_callback(chunk: bytes) -> None:
+        entered.set()
+        release.wait(timeout=5)
+
+    blocking = Receiver(ModemOptions(), on_bytes=slow_callback)
+
+    def feed() -> None:
+        blocking.push(samples)
+        blocking.drain()
+
+    worker = threading.Thread(target=feed, daemon=True)
+    worker.start()
+    try:
+        if entered.wait(timeout=5):
+            try:
+                blocking.push(samples)
+            except ConfigError as error:
+                rejected.append(error)
+    finally:
+        release.set()
+        worker.join(timeout=10)
+
+    assert rejected, "a second thread was allowed into the same Receiver"
+    assert "already in use" in str(rejected[0])
 
 
 def test_rx_rejects_no_source():
