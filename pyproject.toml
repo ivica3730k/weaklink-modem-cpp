@@ -42,7 +42,7 @@ test-command = "pytest {project}/tests/python -q"
 [tool.cibuildwheel.linux]
 # PortAudio needs ALSA headers to build its backend. The runtime library is
 # dlopen'd rather than linked, so the wheel still starts on a box without it.
-before-all = "yum install -y alsa-lib-devel || apt-get update && apt-get install -y libasound2-dev"
+before-all = "yum install -y alsa-lib-devel || { apt-get update && apt-get install -y libasound2-dev; }"
 
 [tool.pytest.ini_options]
 testpaths = ["tests/python"]
