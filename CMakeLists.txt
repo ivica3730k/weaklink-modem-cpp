@@ -34,7 +34,15 @@ set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 # What `--version` reports. Release builds pass the tag; everything else is 0.0.0,
 # matching the reference implementation, which keeps 0.0.0 in git and sets the
 # real version from the tag at publish time.
-set(WEAKLINK_VERSION "${PROJECT_VERSION}" CACHE STRING "Version string reported by the binaries")
+#
+# A wheel build is the exception: the version is already pinned in
+# pyproject.toml, and a CLI shipped inside a 1.0.0 wheel reporting 0.0.0 would
+# just be wrong. scikit-build-core hands it over as SKBUILD_PROJECT_VERSION.
+if(DEFINED SKBUILD_PROJECT_VERSION)
+  set(WEAKLINK_VERSION "${SKBUILD_PROJECT_VERSION}" CACHE STRING "Version string reported by the binaries" FORCE)
+else()
+  set(WEAKLINK_VERSION "${PROJECT_VERSION}" CACHE STRING "Version string reported by the binaries")
+endif()
 
 # Static libstdc++/libgcc let one Linux binary run across distributions without
 # matching the build machine's GCC runtime. Not meaningful on macOS, where the

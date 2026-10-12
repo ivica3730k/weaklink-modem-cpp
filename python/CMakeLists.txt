@@ -19,3 +19,15 @@ target_link_libraries(weaklink_core PRIVATE weaklink::modem wl_warnings)
 # site-packages, where they do not belong and could collide with another
 # package's files.
 install(TARGETS weaklink_core LIBRARY DESTINATION weaklink/modem COMPONENT python)
+
+# Ship the CLI itself, not a Python launcher around it. A wheel's scripts
+# directory takes any executable, so `pip install weaklink-modem` puts the
+# native binary on PATH -- no interpreter in the way, which is the whole point
+# of replacing a Python CLI with this one.
+#
+# The pure-Python package this replaces on PyPI installs a `weaklink-modem`
+# console script, so dropping it would break every shell that calls it.
+if(WEAKLINK_BUILD_APPS)
+  install(TARGETS weaklink-modem weaklink-modem-benchmark
+    RUNTIME DESTINATION "${SKBUILD_SCRIPTS_DIR}" COMPONENT python)
+endif()

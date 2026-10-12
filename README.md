@@ -227,6 +227,11 @@ make python          # extension into build/venv, then the Python suite
 same CMake tree as everything else, behind `-DWEAKLINK_PYTHON=ON`, which
 scikit-build-core sets; a plain CMake build never looks for an interpreter.
 
+A `Receiver` belongs to one thread: `push`, `drain` and `listen` refuse to run
+concurrently on the same instance rather than let two callers corrupt the
+decode. The `on_bytes` callback runs on the decoder's thread with the GIL
+held, never on the audio callback thread.
+
 Two things the bindings do not carry: `build_config` and `ModemConfig` are not
 exposed, so the preset-resolution internals stay on the C++ side, and the
 pure-Python `weaklink-modem` cannot be installed into the same environment --

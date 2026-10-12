@@ -32,7 +32,9 @@ wheel.packages = ["python/weaklink"]
 install.components = ["python"]
 # The CLI, the benchmark and the Catch2 suite are no part of a wheel.
 cmake.define.WEAKLINK_PYTHON = "ON"
-cmake.define.WEAKLINK_BUILD_APPS = "OFF"
+# The CLI travels in the wheel; see python/CMakeLists.txt. The benchmark comes
+# with it, because the package it replaces installs both commands.
+cmake.define.WEAKLINK_BUILD_APPS = "ON"
 cmake.define.WEAKLINK_BUILD_TESTS = "OFF"
 cmake.define.WEAKLINK_INSTALL = "OFF"
 cmake.define.WEAKLINK_LIVE_AUDIO = "ON"
