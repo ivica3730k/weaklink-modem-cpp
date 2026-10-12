@@ -55,6 +55,12 @@ One CMake target per concern under `libs/`, each with its public headers in
 
 Apps: `apps/modem` (the `weaklink-modem` CLI) and `apps/benchmark`.
 
+`python/` holds the pybind11 extension published to PyPI as
+`weaklink-modem`, importable as `weaklink.modem`. It mirrors the Python
+reference's API so the two are interchangeable, and it is built only when
+`WEAKLINK_PYTHON` is on, which scikit-build-core sets from `pyproject.toml`.
+Audio stays in C++: Python pushes samples or names a device.
+
 Consumers link `weaklink::modem`, a facade over `wl_api`; the individual
 libraries are exported under the same `weaklink::` namespace.
 `cmake/WeaklinkLibrary.cmake` holds the per-library alias/include/install
@@ -100,6 +106,19 @@ Only these three, all documented in the README:
    unstable, so the reference resolves these arbitrarily; determinism here is
    what lets the port decode OOK where the reference cannot.
 3. The benchmark parallelises with threads, not processes.
+
+## Python bindings
+
+- The binding releases the GIL around every call into the modem and takes it
+  back inside the byte-sink callback. A Python object must never be copied or
+  destroyed while the GIL is released.
+- `should_stop` polls `PyErr_CheckSignals`, which is the only reason Ctrl-C
+  reaches a blocking receive.
+- The byte sink fires on the decoder's polling thread, never the PortAudio
+  callback thread. Keep it that way: a Python callback on the audio thread
+  would be both a GIL problem and a realtime one.
+- `tests/python` covers the boundary, not the modem; the signal chain is the
+  Catch2 suite's job.
 
 ## Verification
 

@@ -183,6 +183,55 @@ be linked into a shared object such as a Python extension module.
 Two complete consumer projects to copy from: `examples/fetch` (FetchContent
 from GitHub) and `examples/embed` (`find_package` against an install).
 
+## Python
+
+The same modem behind a Python API, as `weaklink.modem`. Wire compatible with
+the pure-Python implementation: audio from one decodes on the other.
+
+```bash
+pip install weaklink-modem
+```
+
+```python
+from weaklink.modem import ModemOptions, rx, tx
+
+samples = tx(b"hello over audio", ModemOptions(baud=300, num_tones=4))
+print(rx(samples, ModemOptions(baud=300, num_tones=4)).rstrip(b"\x00"))
+```
+
+Audio never leaves C++. Either push samples in:
+
+```python
+from weaklink.modem import ModemOptions, Receiver
+
+receiver = Receiver(ModemOptions(baud=300), on_bytes=print)
+receiver.push(chunk)      # float32 mono at receiver.sample_rate
+receiver.drain()
+```
+
+or name a device and let the modem open it, with no audio library on the
+Python side:
+
+```python
+receiver.listen("default")    # blocks until Ctrl-C
+```
+
+Runnable versions of all three are in `examples/python/`. To build it from a
+working copy:
+
+```bash
+make python          # extension into build/venv, then the Python suite
+```
+
+`pip install -e .` does the same thing by hand. The extension is built by the
+same CMake tree as everything else, behind `-DWEAKLINK_PYTHON=ON`, which
+scikit-build-core sets; a plain CMake build never looks for an interpreter.
+
+Two things the bindings do not carry: `build_config` and `ModemConfig` are not
+exposed, so the preset-resolution internals stay on the C++ side, and the
+pure-Python `weaklink-modem` cannot be installed into the same environment --
+both own the `weaklink.modem` import path.
+
 ## Architecture
 
 Signal chain, TX top-down (RX is the mirror):

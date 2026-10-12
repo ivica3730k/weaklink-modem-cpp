@@ -23,6 +23,9 @@ option(WEAKLINK_BUILD_APPS  "Build the weaklink-modem CLI and the benchmark" ${W
 option(WEAKLINK_INSTALL     "Generate install and find_package rules" ${WEAKLINK_IS_TOP_LEVEL})
 option(WEAKLINK_LIVE_AUDIO  "Build live audio I/O (bundles PortAudio)" ON)
 option(WEAKLINK_STATIC_RUNTIME "Link libstdc++/libgcc statically (portable Linux builds)" OFF)
+# Off for a plain CMake build: nothing should go looking for an interpreter or
+# for pybind11 unless a wheel is being built. scikit-build-core turns it on.
+option(WEAKLINK_PYTHON      "Build the weaklink.modem extension module" OFF)
 
 # The static libraries have to be position independent or they cannot be linked
 # into a shared object -- a Python extension module being the case that matters.
@@ -94,6 +97,10 @@ if(WEAKLINK_BUILD_TESTS)
   add_subdirectory(tests)
 endif()
 
+if(WEAKLINK_PYTHON)
+  add_subdirectory(python)
+endif()
+
 if(WEAKLINK_INSTALL)
   include(cmake/Install.cmake)
 endif()
@@ -104,4 +111,5 @@ message(STATUS "  live audio   : ${WEAKLINK_LIVE_AUDIO}")
 message(STATUS "  apps         : ${WEAKLINK_BUILD_APPS}")
 message(STATUS "  tests        : ${WEAKLINK_BUILD_TESTS}")
 message(STATUS "  install rules: ${WEAKLINK_INSTALL}")
+message(STATUS "  python module: ${WEAKLINK_PYTHON}")
 message(STATUS "  binaries ->   ${WEAKLINK_BIN_DIR}")

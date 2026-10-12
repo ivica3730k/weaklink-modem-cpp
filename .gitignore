@@ -11,3 +11,11 @@ compile_commands.json
 *.wav
 log.txt
 .benchmark-cache/
+
+# Python packaging: wheel build trees, compiled extensions, editable installs.
+*.egg-info/
+__pycache__/
+*.so
+*.pyd
+.pytest_cache/
+wheelhouse/
