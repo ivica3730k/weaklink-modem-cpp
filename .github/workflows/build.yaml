@@ -51,7 +51,7 @@ jobs:
         include:
           - service: linux-amd64
             arch: x86_64
-            runner: ubuntu-24.04
+            runner: weaklink-runner
           - service: linux-arm64
             arch: arm64
             runner: ubuntu-24.04-arm
@@ -86,11 +86,11 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { name: "ubuntu 22.04",          image: "ubuntu:22.04",                     runner: ubuntu-24.04,     arch: x86_64 }
-          - { name: "ubuntu 24.04",          image: "ubuntu:24.04",                     runner: ubuntu-24.04,     arch: x86_64 }
-          - { name: "debian bookworm",       image: "debian:bookworm-slim",             runner: ubuntu-24.04,     arch: x86_64 }
-          - { name: "debian trixie",         image: "debian:trixie-slim",               runner: ubuntu-24.04,     arch: x86_64 }
-          - { name: "arch",                  image: "archlinux:latest",                 runner: ubuntu-24.04,     arch: x86_64 }
+          - { name: "ubuntu 22.04",          image: "ubuntu:22.04",                     runner: weaklink-runner, arch: x86_64 }
+          - { name: "ubuntu 24.04",          image: "ubuntu:24.04",                     runner: weaklink-runner, arch: x86_64 }
+          - { name: "debian bookworm",       image: "debian:bookworm-slim",             runner: weaklink-runner, arch: x86_64 }
+          - { name: "debian trixie",         image: "debian:trixie-slim",               runner: weaklink-runner, arch: x86_64 }
+          - { name: "arch",                  image: "archlinux:latest",                 runner: weaklink-runner, arch: x86_64 }
           - { name: "ubuntu 24.04 arm64",    image: "ubuntu:24.04",                     runner: ubuntu-24.04-arm, arch: arm64 }
           - { name: "debian bookworm arm64", image: "debian:bookworm-slim",             runner: ubuntu-24.04-arm, arch: arm64 }
           - { name: "raspberry pi os",       image: "dtcooper/raspberrypi-os:bookworm", runner: ubuntu-24.04-arm, arch: arm64 }
