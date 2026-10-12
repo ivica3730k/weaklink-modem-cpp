@@ -103,6 +103,12 @@ struct StreamingState {
   int expected_block_index = 0;
 };
 
+/// Hand back everything the streaming state is still holding -- confirmed
+/// blocks waiting on an earlier one, plus unconfirmed copies -- in block-index
+/// order, and forget it. A batch decode does this itself; callers need it for
+/// the end-of-input paths that never reach a decode at all.
+ByteVector flush_streaming_state(StreamingState& state);
+
 struct DecodeResult {
   ByteVector bytes;
   /// Streaming only: keep audio from this sample offset onward for the next

@@ -147,11 +147,38 @@ double to_db(double value) {
 
 }  // namespace
 
+ByteVector flush_streaming_state(StreamingState& state) {
+  // Confirmed-but-held blocks outrank pending copies at the same index.
+  std::map<int, ByteVector> held = state.ready_blocks;
+  for (const auto& entry : state.pending_blocks) {
+    held.emplace(entry.first, entry.second);
+  }
+  ByteVector out;
+  for (const auto& entry : held) {
+    if (state.emitted.find(entry.first) == state.emitted.end()) {
+      out.insert(out.end(), entry.second.begin(), entry.second.end());
+      state.emitted.insert(entry.first);
+    }
+  }
+  state.ready_blocks.clear();
+  state.pending_blocks.clear();
+  state.copies_seen.clear();
+  state.combining_buffer.clear();
+  return out;
+}
+
 DecodeResult decode(const float* samples, std::size_t count, const ModemConfig& config,
                     bool streaming, StreamingState* state) {
+  // Batch mode gets no second call, so returning early still has to release
+  // whatever the state is holding: those blocks decoded cleanly and nothing
+  // downstream will ask for them again.
+  const auto abandon = [&]() -> DecodeResult {
+    return DecodeResult{(!streaming && state) ? flush_streaming_state(*state) : ByteVector{}, 0};
+  };
+
   if (count == 0) {
     log().debug("empty sample buffer; nothing to decode");
-    return {};
+    return abandon();
   }
   const auto samples_per_symbol = static_cast<std::size_t>(config.waveform().samples_per_symbol());
 
@@ -194,7 +221,7 @@ DecodeResult decode(const float* samples, std::size_t count, const ModemConfig& 
       dsp::demodulate_soft(samples, count, config.waveform(), coarse_offset);
   if (coarse_magnitudes.rows() == 0) {
     log().debug("demodulator returned no symbols; sample count below one symbol");
-    return {};
+    return abandon();
   }
 
   const std::vector<int>& preamble = preamble_for(config.waveform().num_tones());
@@ -228,29 +255,13 @@ DecodeResult decode(const float* samples, std::size_t count, const ModemConfig& 
       state->session_ended = true;
       // Session is over: flush pending blocks even though the last of them
       // may have fewer than block_repeats copies.
-      // Confirmed-but-held blocks outrank pending ones at the same index, so
-      // they seed the map and the pending copies only fill the gaps.
-      std::map<int, ByteVector> tail_blocks = state->ready_blocks;
-      for (const auto& entry : state->pending_blocks) {
-        tail_blocks.emplace(entry.first, entry.second);
-      }
-      ByteVector tail;
-      for (const auto& entry : tail_blocks) {
-        if (emitted_indices.find(entry.first) == emitted_indices.end()) {
-          tail.insert(tail.end(), entry.second.begin(), entry.second.end());
-          emitted_indices.insert(entry.first);
-        }
-      }
-      state->ready_blocks.clear();
-      pending_blocks.clear();
-      copies_seen.clear();
-      state->combining_buffer.clear();
+      ByteVector tail = flush_streaming_state(*state);
       state->expected_block_index = 0;
       if (!tail.empty()) {
         return DecodeResult{std::move(tail), 0};
       }
     }
-    return {};
+    return abandon();
   }
 
   // Peaks found, so the offset estimate is proven. Cache it if it was fresh.

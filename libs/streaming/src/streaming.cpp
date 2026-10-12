@@ -170,26 +170,31 @@ void StreamingRxDecoder::drain() {
   }
   Samples buffer;
   std::size_t buffer_start = 0;
+  bool have_tail = false;
   {
     std::lock_guard<std::mutex> guard(chunks_mutex_);
-    if (chunks_.empty()) {
-      return;
+    if (!chunks_.empty()) {
+      for (const Samples& chunk : chunks_) {
+        buffer.insert(buffer.end(), chunk.begin(), chunk.end());
+      }
+      buffer_start = samples_before_buffer_;
+      have_tail = true;
     }
-    for (const Samples& chunk : chunks_) {
-      buffer.insert(buffer.end(), chunk.begin(), chunk.end());
-    }
-    buffer_start = samples_before_buffer_;
   }
   const std::size_t cursor_in_buffer = cursor_ > buffer_start ? cursor_ - buffer_start : 0;
-  if (cursor_in_buffer >= buffer.size()) {
-    return;
+  if (have_tail && cursor_in_buffer < buffer.size()) {
+    // Batch decode over the tail: no more audio is coming, so end-of-buffer
+    // slots that streaming mode would hold back must be flushed.
+    const codec::DecodeResult result =
+        codec::decode(buffer.data() + cursor_in_buffer, buffer.size() - cursor_in_buffer,
+                      config_, false, &state_);
+    write_out(result.bytes);
   }
-  // Batch decode over the tail: no more audio is coming, so end-of-buffer
-  // slots that streaming mode would hold back must be flushed.
-  const codec::DecodeResult result =
-      codec::decode(buffer.data() + cursor_in_buffer, buffer.size() - cursor_in_buffer, config_,
-                    false, &state_);
-  write_out(result.bytes);
+  // There may be no tail to decode -- the cursor can already sit at the end,
+  // or the retained audio can hold no preamble -- and blocks held back for an
+  // earlier one would go out with it. This is the last word either way.
+  write_out(codec::flush_streaming_state(state_));
+
   std::lock_guard<std::mutex> guard(chunks_mutex_);
   samples_before_buffer_ = buffer_start + buffer.size();
   chunks_.clear();
