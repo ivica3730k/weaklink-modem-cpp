@@ -46,16 +46,23 @@ weaklink_support_library(wl_pocketfft)
 if(WEAKLINK_BUILD_APPS)
   find_package(CLI11 2.4 QUIET)
   if(NOT CLI11_FOUND)
-    set(CLI11_BUILD_TESTS OFF CACHE BOOL "" FORCE)
-    set(CLI11_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
-    set(CLI11_BUILD_DOCS OFF CACHE BOOL "" FORCE)
-    set(CLI11_INSTALL OFF CACHE BOOL "" FORCE)
+    # Plain variables rather than cache entries: these choices are this
+    # project's, and an enclosing build that fetches CLI11 for its own
+    # purposes should keep its own. CMP0077 is what makes a subproject's
+    # option() defer to them.
+    set(CMAKE_POLICY_DEFAULT_CMP0077 NEW)
+    set(CLI11_BUILD_TESTS OFF)
+    set(CLI11_BUILD_EXAMPLES OFF)
+    set(CLI11_BUILD_DOCS OFF)
+    set(CLI11_INSTALL OFF)
 
     FetchContent_Declare(cli11
       GIT_REPOSITORY https://github.com/CLIUtils/CLI11.git
       GIT_TAG ${WEAKLINK_CLI11_TAG}
       GIT_SHALLOW TRUE)
     FetchContent_MakeAvailable(cli11)
+
+    unset(CMAKE_POLICY_DEFAULT_CMP0077)
     weaklink_mark_system(CLI11)
   endif()
 
@@ -66,12 +73,16 @@ endif()
 if(WEAKLINK_BUILD_TESTS)
   find_package(Catch2 2 QUIET)
   if(NOT Catch2_FOUND)
-    set(CATCH_BUILD_TESTING OFF CACHE BOOL "" FORCE)
-    set(CATCH_INSTALL_DOCS OFF CACHE BOOL "" FORCE)
-    set(CATCH_INSTALL_HELPERS OFF CACHE BOOL "" FORCE)
+    # Catch2 2.13 predates CMP0077, so without granting it the policy its
+    # option() calls would overwrite the three settings below -- and building
+    # Catch2's own self-tests is not this project's business.
+    set(CMAKE_POLICY_DEFAULT_CMP0077 NEW)
+    set(CATCH_BUILD_TESTING OFF)
+    set(CATCH_INSTALL_DOCS OFF)
+    set(CATCH_INSTALL_HELPERS OFF)
 
-    # Catch2 2.13 still declares cmake_minimum_required(VERSION 3.5), which
-    # newer CMake refuses outright -- the same grant PortAudio needs below.
+    # It also still declares cmake_minimum_required(VERSION 3.5), which newer
+    # CMake refuses outright -- the same grant PortAudio needs below.
     set(CMAKE_POLICY_VERSION_MINIMUM 3.5)
 
     FetchContent_Declare(catch2
@@ -81,6 +92,7 @@ if(WEAKLINK_BUILD_TESTS)
     FetchContent_MakeAvailable(catch2)
 
     unset(CMAKE_POLICY_VERSION_MINIMUM)
+    unset(CMAKE_POLICY_DEFAULT_CMP0077)
     weaklink_mark_system(Catch2)
   endif()
 

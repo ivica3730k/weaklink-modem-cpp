@@ -1,14 +1,34 @@
 # Third-party notices
 
-weaklink-modem itself is MIT licensed; see LICENSE. The binaries it ships
-carry the following third-party code, whose licences ask for their notices
-to travel with any binary distribution. None of it is vendored: CMake
-fetches each dependency at the version pinned in `cmake/ThirdParty.cmake`.
+weaklink-modem itself is MIT licensed; see LICENSE. The binaries it ships carry
+the following third-party code, whose licences ask for their notices to travel
+with any binary distribution. None of it is vendored: CMake fetches each
+dependency at the version pinned in `cmake/ThirdParty.cmake`.
+
+Each notice below is reproduced from the source it was taken from -- for
+pocketfft that is the header itself, which carries a fuller copyright block
+than the repository's LICENSE.md.
 
 ## pocketfft (BSD-3-Clause) — compiled into the modem
 
 ```
-Copyright (C) 2010-2018 Max-Planck-Society
+This file is part of pocketfft.
+
+Copyright (C) 2010-2024 Max-Planck-Society
+Copyright (C) 2019-2020 Peter Bell
+
+For the odd-sized DCT-IV transforms:
+  Copyright (C) 2003, 2007-14 Matteo Frigo
+  Copyright (C) 2003, 2007-14 Massachusetts Institute of Technology
+
+For the prev_good_size search:
+  Copyright (C) 2024 Tan Ping Liang, Peter Bell
+
+For the safeguards against integer overflow in good_size search:
+  Copyright (C) 2024 Cris Luengo
+
+Authors: Martin Reinecke, Peter Bell
+
 All rights reserved.
 
 Redistribution and use in source and binary forms, with or without modification,
@@ -34,6 +54,7 @@ ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
 SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ```
+
 
 ## CLI11 (BSD-3-Clause) — compiled into the CLI and the benchmark
 
@@ -63,8 +84,8 @@ LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON
 ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
 SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-
 ```
+
 
 ## PortAudio (MIT) — linked statically when live audio is built in
 
@@ -149,7 +170,9 @@ Implementation files to contain:
  * requested that these non-binding requests be included along with the 
  * license above.
  */
-<<<<<```
+<<<<<
+```
+
 
 ## Catch2 (BSL-1.0) — test suite only, not part of any shipped binary
 
