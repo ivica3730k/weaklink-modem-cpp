@@ -104,27 +104,34 @@ if(WEAKLINK_LIVE_AUDIO)
   find_package(Threads REQUIRED)
   set(WEAKLINK_PORTAUDIO_TAG "v19.7.0" CACHE STRING "PortAudio git tag to bundle")
 
-  set(PA_BUILD_SHARED OFF CACHE BOOL "" FORCE)
-  set(PA_BUILD_STATIC ON  CACHE BOOL "" FORCE)
-  set(PA_BUILD_TESTS  OFF CACHE BOOL "" FORCE)
-  set(PA_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+  # PortAudio 19.7 still declares cmake_minimum_required(VERSION 3.0), which
+  # CMake 4 refuses outright. Granting it the 3.5 floor is the documented
+  # escape hatch and affects only the fetched subproject.
+  #
+  # CMP0077 is granted for the same reason the floor is: the settings below
+  # are plain variables, scoped to this directory, and a project that predates
+  # the policy would have its own option() defaults overwrite them. Cache
+  # entries would reach further than they should -- an enclosing build that
+  # fetches PortAudio for its own purposes keeps its own choices this way.
+  set(CMAKE_POLICY_VERSION_MINIMUM 3.5)
+  set(CMAKE_POLICY_DEFAULT_CMP0077 NEW)
+
+  set(PA_BUILD_SHARED OFF)
+  set(PA_BUILD_STATIC ON)
+  set(PA_BUILD_TESTS OFF)
+  set(PA_BUILD_EXAMPLES OFF)
   set(BUILD_SHARED_LIBS OFF)
 
   # PortAudio is built for us, not for the machine: its headers, pkg-config
   # file, CMake package and documentation have no business in a prefix that
   # asked for weaklink. The option exists upstream for exactly this case.
-  set(PA_DISABLE_INSTALL ON CACHE BOOL "" FORCE)
+  set(PA_DISABLE_INSTALL ON)
 
   # Load ALSA through dlopen rather than linking it. One Linux binary then
   # starts anywhere -- a container without libasound included -- and only needs
   # the library when live audio is actually opened. WAV and stdin/stdout modes
   # never touch it.
-  set(PA_ALSA_DYNAMIC ON CACHE BOOL "" FORCE)
-
-  # PortAudio 19.7 still declares cmake_minimum_required(VERSION 3.0), which
-  # CMake 4 refuses outright. Granting it the 3.5 floor is the documented
-  # escape hatch and affects only the fetched subproject.
-  set(CMAKE_POLICY_VERSION_MINIMUM 3.5)
+  set(PA_ALSA_DYNAMIC ON)
 
   FetchContent_Declare(portaudio
     GIT_REPOSITORY https://github.com/PortAudio/portaudio.git
@@ -133,12 +140,19 @@ if(WEAKLINK_LIVE_AUDIO)
   FetchContent_MakeAvailable(portaudio)
 
   unset(CMAKE_POLICY_VERSION_MINIMUM)
+  unset(CMAKE_POLICY_DEFAULT_CMP0077)
 
-  if(TARGET portaudio_static)
-    set(WEAKLINK_PORTAUDIO_TARGET portaudio_static)
-  else()
-    set(WEAKLINK_PORTAUDIO_TARGET portaudio)
+  # A shared PortAudio here would mean a binary that needs it at runtime,
+  # which is the opposite of what every release promises. If the settings
+  # above failed to take, this is where that shows up rather than in somebody
+  # else's ldd output.
+  if(NOT TARGET portaudio_static)
+    message(FATAL_ERROR
+      "PortAudio did not build its static library; weaklink's binaries would "
+      "need a libportaudio at runtime. Check PA_BUILD_STATIC and PA_BUILD_SHARED.")
   endif()
+
+  set(WEAKLINK_PORTAUDIO_TARGET portaudio_static)
 
   # Where the archives can be merged, PortAudio's objects go inside wl_audio
   # (see libs/audio) and nothing of PortAudio's is installed or exported: the
