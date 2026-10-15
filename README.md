@@ -109,6 +109,11 @@ Only what is being built is fetched: Catch2 comes down with
 `-DWEAKLINK_BUILD_TESTS=ON`, CLI11 with the apps, and PortAudio only when live
 audio is on -- `-DWEAKLINK_LIVE_AUDIO=OFF` drops it and keeps the WAV paths.
 
+None of it reaches an installed prefix. The binaries carry PortAudio inside
+them, and `cmake --install` folds its objects into `libwl_audio.a`, so a
+prefix that asked for weaklink gets weaklink: no `portaudio.h`, no
+`libportaudio.a` to collide with the one a consumer may already have.
+
 ## CLI
 
 The command line is unchanged from the Python implementation: same subcommands,
