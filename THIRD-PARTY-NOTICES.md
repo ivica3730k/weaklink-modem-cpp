@@ -5,11 +5,13 @@ the following third-party code, whose licences ask for their notices to travel
 with any binary distribution. None of it is vendored: CMake fetches each
 dependency at the version pinned in `cmake/ThirdParty.cmake`.
 
-Each notice below is reproduced from the source it was taken from -- for
-pocketfft that is the header itself, which carries a fuller copyright block
-than the repository's LICENSE.md.
+This file is assembled from the licence texts under `third_party/`, which is
+where each notice is kept.
 
 ## pocketfft (BSD-3-Clause) — compiled into the modem
+
+Reproduced from `pocketfft_hdronly.h`, which carries a fuller copyright block
+than the repository's `LICENSE.md`.
 
 ```
 This file is part of pocketfft.
