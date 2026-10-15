@@ -91,6 +91,11 @@ namespace is shared across the family while the package name is
   surprising behaviour). Don't restate what the code does or reference tickets.
 - Specific mode names like `4-FSK`, `16-FSK` are conventional shorthand for a
   fixed M and are kept as-is. `MFSK` is the family name. `N-FSK` is not used.
+- **Nothing of a dependency's is installed.** PortAudio's objects are merged
+  into `libwl_audio.a` (see `cmake/BundleStatic.cmake`) and `PA_DISABLE_INSTALL`
+  keeps its headers, package files and documentation out of the prefix. The
+  system libraries those objects need are repeated on `wl_portaudio`, because
+  they used to reach consumers through a target that is now build-tree only.
 - Warnings are errors in spirit: the build is clean under `-Wall -Wextra
   -Wpedantic -Wshadow -Wconversion -Wsign-conversion -Wold-style-cast`. Keep it
   that way; a fetched dependency's headers are marked SYSTEM so their warnings

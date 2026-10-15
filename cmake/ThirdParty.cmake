@@ -110,6 +110,11 @@ if(WEAKLINK_LIVE_AUDIO)
   set(PA_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
   set(BUILD_SHARED_LIBS OFF)
 
+  # PortAudio is built for us, not for the machine: its headers, pkg-config
+  # file, CMake package and documentation have no business in a prefix that
+  # asked for weaklink. The option exists upstream for exactly this case.
+  set(PA_DISABLE_INSTALL ON CACHE BOOL "" FORCE)
+
   # Load ALSA through dlopen rather than linking it. One Linux binary then
   # starts anywhere -- a container without libasound included -- and only needs
   # the library when live audio is actually opened. WAV and stdin/stdout modes
@@ -129,16 +134,47 @@ if(WEAKLINK_LIVE_AUDIO)
 
   unset(CMAKE_POLICY_VERSION_MINIMUM)
 
-  add_library(wl_portaudio INTERFACE)
   if(TARGET portaudio_static)
     set(WEAKLINK_PORTAUDIO_TARGET portaudio_static)
   else()
     set(WEAKLINK_PORTAUDIO_TARGET portaudio)
   endif()
-  target_link_libraries(wl_portaudio INTERFACE ${WEAKLINK_PORTAUDIO_TARGET} Threads::Threads)
 
-  # The fetched PortAudio has to join our export set as well; otherwise an
-  # installed weaklink points at a target that only existed in the build tree.
+  # Where the archives can be merged, PortAudio's objects go inside wl_audio
+  # (see libs/audio) and nothing of PortAudio's is installed or exported: the
+  # dependency is named for the build tree alone. Where they cannot, it is
+  # linked and exported as before, which costs the consumer a libportaudio.a
+  # in their prefix but keeps them able to link.
+  weaklink_can_bundle_archives(WEAKLINK_BUNDLE_PORTAUDIO)
+
+  add_library(wl_portaudio INTERFACE)
+  target_link_libraries(wl_portaudio INTERFACE Threads::Threads)
+  if(WEAKLINK_BUNDLE_PORTAUDIO)
+    target_link_libraries(wl_portaudio INTERFACE "$<BUILD_INTERFACE:${WEAKLINK_PORTAUDIO_TARGET}>")
+
+    # The objects travel inside wl_audio, but the system libraries they call
+    # do not: CoreAudio and its neighbours on macOS, dl and rt elsewhere.
+    # Those reach a consumer through PortAudio's own link interface, which is
+    # build-tree only now, so they are repeated here.
+    #
+    # Frameworks arrive as absolute paths into whichever SDK built this. A
+    # consumer may well have a different one, so they are passed on by name.
+    get_target_property(portaudio_link_libraries ${WEAKLINK_PORTAUDIO_TARGET} INTERFACE_LINK_LIBRARIES)
+    foreach(entry IN LISTS portaudio_link_libraries)
+      if(TARGET "${entry}")
+        continue()
+      endif()
+      if("${entry}" MATCHES "/([A-Za-z0-9_]+)\\.framework/?$")
+        target_link_libraries(wl_portaudio INTERFACE "-framework ${CMAKE_MATCH_1}")
+      else()
+        target_link_libraries(wl_portaudio INTERFACE "${entry}")
+      endif()
+    endforeach()
+  else()
+    target_link_libraries(wl_portaudio INTERFACE ${WEAKLINK_PORTAUDIO_TARGET})
+    # Otherwise an installed weaklink points at a target that only ever
+    # existed in the build tree.
+    weaklink_support_library(${WEAKLINK_PORTAUDIO_TARGET})
+  endif()
   weaklink_support_library(wl_portaudio)
-  weaklink_support_library(${WEAKLINK_PORTAUDIO_TARGET})
 endif()

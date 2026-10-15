@@ -15,3 +15,9 @@ else()
 endif()
 
 weaklink_library(wl_audio)
+
+# PortAudio's objects are merged into this archive, so an installed weaklink
+# carries no PortAudio of its own. See cmake/BundleStatic.cmake.
+if(WEAKLINK_LIVE_AUDIO AND WEAKLINK_BUNDLE_PORTAUDIO)
+  weaklink_bundle_archive(wl_audio ${WEAKLINK_PORTAUDIO_TARGET})
+endif()

@@ -68,6 +68,7 @@ endforeach()
 
 include(cmake/WeaklinkLibrary.cmake)
 include(cmake/Warnings.cmake)
+include(cmake/BundleStatic.cmake)
 include(cmake/ThirdParty.cmake)
 
 weaklink_support_library(wl_runtime)
