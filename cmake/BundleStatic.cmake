@@ -28,22 +28,37 @@ function(weaklink_bundle_archive target dependency)
       COMMENT "Bundling ${dependency} into ${target}"
       VERBATIM)
   else()
-    # ar has no merge flag; its MRI script language does the job. The script is
-    # generated at build time because it names both archives by path, and it
-    # arrives on stdin, which is why this one goes through a shell.
+    # ar has no merge flag; its MRI script language does the job, and the
+    # script arrives on stdin, which is why this one goes through a shell.
+    #
+    # Both archives are staged under fixed names first. ar splits its script
+    # on whitespace and offers no quoting, so a build directory with a space
+    # in it would otherwise break the merge -- and fixed names keep the script
+    # itself free of generator expressions, which a multi-config generator
+    # would otherwise want to write to one filename with differing contents.
+    set(staging "${CMAKE_CURRENT_BINARY_DIR}/bundle-${target}/$<CONFIG>")
     set(script "${CMAKE_CURRENT_BINARY_DIR}/bundle-${target}.mri")
-    file(GENERATE OUTPUT "${script}" CONTENT
-"create $<TARGET_FILE:${target}>.bundled
-addlib $<TARGET_FILE:${target}>
-addlib $<TARGET_FILE:${dependency}>
+    file(WRITE "${script}"
+"create bundled.a
+addlib target.a
+addlib dependency.a
 save
 end
 ")
+
+    # Two blocks: WORKING_DIRECTORY applies to every command in the one it is
+    # given, and the staging directory has to exist before anything can run
+    # inside it.
+    add_custom_command(TARGET ${target} POST_BUILD
+      COMMAND "${CMAKE_COMMAND}" -E make_directory "${staging}"
+      COMMAND "${CMAKE_COMMAND}" -E copy "$<TARGET_FILE:${target}>" "${staging}/target.a"
+      COMMAND "${CMAKE_COMMAND}" -E copy "$<TARGET_FILE:${dependency}>" "${staging}/dependency.a"
+      COMMENT "Bundling ${dependency} into ${target}"
+      VERBATIM)
     add_custom_command(TARGET ${target} POST_BUILD
       COMMAND sh -c "'${CMAKE_AR}' -M < '${script}'"
-      COMMAND "${CMAKE_COMMAND}" -E rename
-              "$<TARGET_FILE:${target}>.bundled" "$<TARGET_FILE:${target}>"
-      COMMENT "Bundling ${dependency} into ${target}"
+      COMMAND "${CMAKE_COMMAND}" -E copy "${staging}/bundled.a" "$<TARGET_FILE:${target}>"
+      WORKING_DIRECTORY "${staging}"
       VERBATIM)
   endif()
 
