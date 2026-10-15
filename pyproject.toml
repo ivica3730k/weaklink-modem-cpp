@@ -4,7 +4,7 @@ build-backend = "scikit_build_core.build"
 
 [project]
 name = "weaklink-modem"
-version = "1.0.0"
+version = "1.1.0"
 description = "MFSK modem with a C++ backend: bytes in, audio out, bytes back"
 readme = "README-pypi.md"
 requires-python = ">=3.9"
