@@ -6,7 +6,7 @@
 // classical soft-combining diversity. Two marginal copies should therefore
 // decode a payload that neither clears alone.
 
-#include "catch.hpp"
+#include <catch2/catch.hpp>
 #include "support.hpp"
 #include "weaklink/rng.hpp"
 

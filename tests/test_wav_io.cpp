@@ -6,7 +6,7 @@
 #include <string>
 #include <vector>
 
-#include "catch.hpp"
+#include <catch2/catch.hpp>
 #include "weaklink/exceptions.hpp"
 #include "weaklink/wav.hpp"
 

@@ -16,7 +16,7 @@
 #include <unistd.h>
 #endif
 
-#include "CLI11.hpp"
+#include <CLI/CLI.hpp>
 #include "weaklink/api.hpp"
 #include "weaklink/constants.hpp"
 #include "weaklink/exceptions.hpp"

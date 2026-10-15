@@ -20,7 +20,7 @@
 #include <thread>
 #include <vector>
 
-#include "CLI11.hpp"
+#include <CLI/CLI.hpp>
 #include "weaklink/codec.hpp"
 #include "weaklink/constants.hpp"
 #include "weaklink/exceptions.hpp"

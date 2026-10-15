@@ -99,10 +99,15 @@ service, Makefile target and Dockerfile are in place for when that lands.
 
 ### Dependencies
 
-Everything needed to build is vendored under `third_party/` (pocketfft, Catch2,
-CLI11), so a clean checkout builds offline. PortAudio is the exception: it needs
-a real build, so it is fetched at configure time from a pinned tag. Build with
-`-DWEAKLINK_LIVE_AUDIO=OFF` to drop it and keep only the WAV paths.
+CMake builds the dependencies as part of the project, each pinned in
+`cmake/ThirdParty.cmake`: pocketfft by commit, CLI11 and Catch2 by tag,
+PortAudio by tag. CLI11 and Catch2 are taken from a system package when one is
+installed, and any of them can be pointed at a local checkout for an offline
+build with `-DFETCHCONTENT_SOURCE_DIR_CLI11=/path` and the like.
+
+Only what is being built is fetched: Catch2 comes down with
+`-DWEAKLINK_BUILD_TESTS=ON`, CLI11 with the apps, and PortAudio only when live
+audio is on -- `-DWEAKLINK_LIVE_AUDIO=OFF` drops it and keeps the WAV paths.
 
 ## CLI
 

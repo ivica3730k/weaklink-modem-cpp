@@ -2,7 +2,7 @@
 
 #include <vector>
 
-#include "catch.hpp"
+#include <catch2/catch.hpp>
 #include "weaklink/interleaver.hpp"
 #include "weaklink/rng.hpp"
 

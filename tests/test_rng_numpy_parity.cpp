@@ -6,7 +6,7 @@
 // pasted verbatim. If one of these fails, interoperability is broken even if
 // every higher-level test still passes against C++-generated audio.
 
-#include "catch.hpp"
+#include <catch2/catch.hpp>
 #include <string>
 #include <vector>
 
