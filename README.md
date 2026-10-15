@@ -364,3 +364,9 @@ Deliberate, and limited to these:
 ## License
 
 MIT. See [LICENSE](LICENSE).
+
+pocketfft and CLI11 are compiled into the binaries and PortAudio is linked
+statically into them, all three under their own terms; Catch2 is used by the
+test suite and ships in nothing. Their licence texts are kept under
+`third_party/`, one directory each, and
+[THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md) is assembled from them.
