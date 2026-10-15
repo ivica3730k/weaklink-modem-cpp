@@ -4,7 +4,7 @@
 
 #include <string>
 
-#include "catch.hpp"
+#include <catch2/catch.hpp>
 #include "support.hpp"
 #include "weaklink/exceptions.hpp"
 

@@ -5,7 +5,7 @@
 #include <algorithm>
 #include <cmath>
 
-#include "catch.hpp"
+#include <catch2/catch.hpp>
 #include "support.hpp"
 #include "weaklink/api.hpp"
 #include "weaklink/constants.hpp"

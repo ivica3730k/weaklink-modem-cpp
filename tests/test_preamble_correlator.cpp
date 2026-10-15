@@ -7,7 +7,7 @@
 #include <cmath>
 #include <vector>
 
-#include "catch.hpp"
+#include <catch2/catch.hpp>
 #include "support.hpp"
 #include "weaklink/rng.hpp"
 

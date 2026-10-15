@@ -3,7 +3,7 @@
 // infeasible for one side is therefore infeasible for the other -- this guards
 // a report where only one side enforced it.
 
-#include "catch.hpp"
+#include <catch2/catch.hpp>
 #include "weaklink/codec.hpp"
 #include "weaklink/exceptions.hpp"
 #include "weaklink/waveform.hpp"

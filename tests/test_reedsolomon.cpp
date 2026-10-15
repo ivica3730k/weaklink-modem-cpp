@@ -5,7 +5,7 @@
 
 #include <vector>
 
-#include "catch.hpp"
+#include <catch2/catch.hpp>
 #include "weaklink/bits.hpp"
 #include "weaklink/reedsolomon.hpp"
 

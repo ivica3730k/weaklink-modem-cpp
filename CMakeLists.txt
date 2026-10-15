@@ -1,4 +1,6 @@
-cmake_minimum_required(VERSION 3.16)
+# 3.18: FetchContent_MakeAvailable has to cope with pocketfft, which has no
+# CMakeLists.txt of its own, and the wheel build already requires this floor.
+cmake_minimum_required(VERSION 3.18)
 # C is enabled for the bundled PortAudio sources; none of the weaklink code is C.
 project(weaklink-modem VERSION 0.0.0 LANGUAGES CXX C)
 

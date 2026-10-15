@@ -93,8 +93,8 @@ namespace is shared across the family while the package name is
   fixed M and are kept as-is. `MFSK` is the family name. `N-FSK` is not used.
 - Warnings are errors in spirit: the build is clean under `-Wall -Wextra
   -Wpedantic -Wshadow -Wconversion -Wsign-conversion -Wold-style-cast`. Keep it
-  that way; vendored third-party headers are included as SYSTEM so their
-  warnings do not leak in.
+  that way; a fetched dependency's headers are marked SYSTEM so their warnings
+  do not leak in.
 
 ## Deliberate divergences from Python
 
